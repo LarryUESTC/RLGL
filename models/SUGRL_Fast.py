@@ -245,7 +245,7 @@ class GCN_Fast(nn.Module):
 
     def forward(self, A_a, X_a):
         # X_a = F.dropout(X_a, 0.2)
-        X_a = F.dropout(X_a, self.dropout, training=self.training)
+        # X_a = F.dropout(X_a, self.dropout, training=self.training)
 
         for i in range(self.layer_num):
             X_a = self.GCN_layers[i](A_a, X_a)
