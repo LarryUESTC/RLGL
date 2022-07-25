@@ -117,7 +117,7 @@ class SemiGRL(embedder_single):
         self.cfg.append(nb_classes)
         model = GCN_Fast(self.args.ft_size, cfg=self.cfg, final_mlp = 0, gnn = self.args.gnn, dropout=self.args.random_aug_feature).to(self.args.device)
 
-        optimiser = torch.optim.AdamW(model.parameters(), lr=self.args.lr, weight_decay = self.args.wd)
+        optimiser = torch.optim.SGD(model.parameters(), lr=self.args.lr, weight_decay = self.args.wd)
         xent = nn.CrossEntropyLoss()
         train_lbls = self.labels[self.idx_train]
         val_lbls = self.labels[self.idx_val]

@@ -87,7 +87,7 @@ def main_one(config, checkpoint_dir = None):
     K2_seed = []
     St_seed = []
     Time_seed = []
-    for seed in range(2021, 2024):
+    for seed in range(0, 3):
         args.seed = seed
         torch.manual_seed(seed)
         random.seed(seed)
@@ -152,11 +152,11 @@ def main(args):
         config = {
             'nb_epochs': 1000,
             'lr': 0.01,
-            'wd': 0.0000,
+            'wd': 0.0005,
             'test_epo': 50,
             'test_lr': 0.01,
-            'cfg': [128,32],
-            'random_aug_feature': 0.2,
+            'cfg': [16],
+            'random_aug_feature': 0.1,
             'random_aug_edge': 0.0,
             'alpha': 1,
             'beta': 0.1,
@@ -166,7 +166,7 @@ def main(args):
     ################END|set tune param|###############
 
 if __name__ == '__main__':
-    dataset = 'PubMed' # choice:Cora CiteSeer
+    dataset = 'Cora' # choice:Cora CiteSeer
     args, unknown = parse_args(dataset)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
