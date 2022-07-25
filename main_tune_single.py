@@ -11,6 +11,8 @@ from ray.tune.integration.torch import DistributedTrainableCreator
 from sql_writer import WriteToDatabase, get_primary_key_and_value, get_columns
 from statistics import mean, stdev
 import socket, getpass, os
+import gc
+import copy
 TUNE = False
 def main_one(config, checkpoint_dir = None):
 
@@ -87,11 +89,14 @@ def main_one(config, checkpoint_dir = None):
     K2_seed = []
     St_seed = []
     Time_seed = []
-    for seed in range(0, 3):
-        args.seed = seed
+    for seed in range(2020,2024):
+
+        np.random.seed(seed)
         torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
         random.seed(seed)
-        embedder = SemiGRL(args)
+
+        embedder = SemiGRL(copy.deepcopy(args))
 
         test_acc, training_time, stop_epoch = embedder.training()
 
@@ -106,7 +111,8 @@ def main_one(config, checkpoint_dir = None):
         ACC_seed.append(test_acc)
         # St_seed.append(np.mean(test_st))
         Time_seed.append(training_time)
-
+        torch.cuda.empty_cache()
+        gc.collect()
 
     ################STA|write seed|###############
     writer_matric_seed = {'epoch': -2, "seed": -2,"test_time": mean(Time_seed), "stop_epoch": -2
@@ -139,15 +145,15 @@ def main(args):
         'beta': tune.choice([1, 0.5, 0.2, 0.1, 0.05, 0.01]),
         'gnn': tune.choice(["GCN","GAT"]),
         }
-        search_alg = HEBOSearch(metric='test_sum', mode='max')
+        # search_alg = HEBOSearch(metric='test_sum', mode='max')
         distributed_ray_run = DistributedTrainableCreator(
             main_one,
             backend='nccl',
             num_gpus_per_worker=0.5,
             num_workers=1,
         )
-        tune.run(distributed_ray_run, config=config, search_alg=search_alg, num_samples=1000, )
-        search_alg.save('checkpoint_alg')
+        tune.run(distributed_ray_run, config=config, num_samples=1000 )
+        # search_alg.save('checkpoint_alg')
     else:
         config = {
             'nb_epochs': 1000,

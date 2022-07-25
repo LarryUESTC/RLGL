@@ -7,11 +7,11 @@ from dgl.nn import GraphConv, EdgeConv, GATConv, SAGEConv, GINConv
 import torch.nn.functional as F
 import math
 
-np.random.seed(0)
-torch.backends.cudnn.deterministic = True
-torch.manual_seed(0)
-torch.cuda.manual_seed_all(0)
-random.seed(0)
+# np.random.seed(0)
+# torch.backends.cudnn.deterministic = True
+# torch.manual_seed(0)
+# torch.cuda.manual_seed_all(0)
+# random.seed(0)
 
 def act_layer(act, inplace=False, neg_slope=0.2, n_prelu=1):
     # activation layer
@@ -227,6 +227,13 @@ class GCN_Fast(nn.Module):
             torch.nn.init.xavier_uniform_(m.weight.data)
             if m.bias is not None:
                 m.bias.data.fill_(0.0)
+        if isinstance(m, nn.Sequential):
+            for mm in m:
+                try:
+                    torch.nn.init.xavier_uniform_(mm.weight.data)
+                except:
+                    pass
+
 
     def get_embedding(self, A_a, X_a):
         for i in range(self.layer_num):

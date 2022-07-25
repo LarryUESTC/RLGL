@@ -17,9 +17,19 @@ def load_single_graph(args=None):
         dataset = Amazon(path, args.dataset, pre_transform=None)  # transform=T.ToSparseTensor(),
 
     data = dataset[0]
-    idx_train = data.train_mask.ravel()
-    idx_val = data.val_mask.ravel()
-    idx_test = data.test_mask.ravel()
+    if args.dataset == 'Cora':
+
+        idx_train = data.train_mask.ravel()
+        idx_val = data.val_mask.ravel()
+        idx_test = data.test_mask.ravel()
+        idx_test[:] = False
+        idx_test[range(500, 1500)]=True
+    else:
+        idx_train = data.train_mask.ravel()
+        idx_val = data.val_mask.ravel()
+        idx_test = data.test_mask.ravel()
+
+
     i = torch.LongTensor([data.edge_index[0].numpy(), data.edge_index[1].numpy()])
     v = torch.FloatTensor(torch.ones([data.num_edges]))
     A_sp = torch.sparse.FloatTensor(i, v, torch.Size([data.num_nodes, data.num_nodes]))

@@ -48,7 +48,7 @@ class embedder_single:
         cprint("## Loading Dataset ##", "yellow")
 
         adj_list, features, labels, idx_train, idx_val, idx_test = process.load_single_graph(args)
-        # features = process.preprocess_features(features)
+        features = process.preprocess_features(features)
 
         # adj_list = [process.sparse_mx_to_torch_sparse_tensor(adj) for adj in adj_list]
         # adj_list = [adj.to_dense() for adj in adj_list]
