@@ -4,7 +4,7 @@ from embedder import embedder_single
 import os
 from tqdm import tqdm
 from evaluate import evaluate, accuracy
-from models.SUGRL_Fast import SUGRL_Fast, GCN_Fast
+from models.Net import SUGRL_Fast, GCN_Fast
 import numpy as np
 import random as random
 import torch.nn.functional as F
@@ -161,7 +161,7 @@ class SemiGRL(embedder_single):
                 embeds = self.model(graph_org, features)
                 val_acc = accuracy(embeds[self.idx_val], val_lbls)
                 test_acc = accuracy(embeds[self.idx_test], test_lbls)
-                print(test_acc.item())
+                # print(test_acc.item())
                 # early stop
                 stop_epoch = epoch
                 if val_acc > best:
