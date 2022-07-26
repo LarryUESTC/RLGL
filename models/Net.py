@@ -347,4 +347,23 @@ class Action_Net(nn.Module):
 
         return  F.log_softmax(self.embedding, dim=1)
 
+class Env_Net(torch.nn.Module):
+    def __init__(self, max_layer, nin, cfg):
+        self.hidden = []
+        super(Env_Net, self).__init__()
+        self.conv1 = GraphConvolution(nin, cfg[0])
+        for i in range(max_layer - 2):
+            self.hidden.append(GraphConvolution(cfg[0], cfg[0]))
+        self.conv2 = GraphConvolution(cfg[0], cfg[-1])
+
+        self.hidden = nn.Sequential(*self.hidden)
+
+    def forward(self, action, x, adj):
+
+        x = F.relu(self.conv1(adj, x))
+        for i in range(action-2):
+            x = F.relu(self.hidden[i](adj, x))
+            x = F.dropout(x, training=self.training)
+        self.embedding = self.conv2(adj, x)
+        return F.log_softmax(self.embedding, dim=1)
 

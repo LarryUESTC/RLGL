@@ -4,14 +4,19 @@ from embedder import embedder_single
 import os
 from tqdm import tqdm
 from evaluate import evaluate, accuracy
-from models.Net import SUGRL_Fast, GCN_Fast, Action_Net
+from models.Net import SUGRL_Fast, GCN_Fast, Action_Net, Env_Net
 import numpy as np
 import random as random
 import torch.nn.functional as F
 import torch
 import torch.nn as nn
+from scipy.sparse import csr_matrix
+import copy
 from models.dqn_agent_pytorch import DQNAgent
-from dgl.nn import GraphConv, EdgeConv, GATConv
+from gym.spaces import Discrete
+from gym import spaces
+from collections import defaultdict
+from utils.process import sparse_mx_to_torch_sparse_tensor
 
 np.random.seed(0)
 torch.backends.cudnn.deterministic = True
@@ -20,105 +25,62 @@ torch.cuda.manual_seed_all(0)
 random.seed(0)
 
 
-class RLGL(embedder_single):
-    def __init__(self, args):
-        embedder_single.__init__(self, args)
+
+class gcn_env(object):
+    def __init__(self, args, adj, feature, data_split, label, lr=0.01, weight_decay=5e-4, max_layer=5, batch_size=128, policy=""):
+        self.device = args.device
         self.args = args
-        self.cfg = args.cfg
-        self.graph_org_torch = self.adj_list[0].to(self.args.device)
-        self.features = self.features.to(self.args.device)
-        self.action_num = 5
-        self.init_k_hop(self.action_num)
-        nb_classes = (self.labels.max() - self.labels.min() + 1).item()
-        self.cfg.append(nb_classes)
+        self.adj = adj
+        self.feature = feature.to(self.device)
+        self.init_k_hop(max_layer)
+        self.model = Env_Net(max_layer, self.args.ft_size, self.args.cfg).to(self.device)
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr, weight_decay=weight_decay)
+        self.idx_train, self.idx_val, self.idx_test = zip(*data_split)
+        self.train_indexes = np.where(np.array(self.idx_train) == True)[0]
+        self.val_indexes = np.where(np.array(self.idx_val) == True)[0]
+        self.test_indexes = np.where(np.array(self.idx_test) == True)[0]
+        self.label = label
+        self.batch_size = len(self.train_indexes) - 1
+        self.i = 0
+        self.val_acc = 0.0
+        self._set_action_space(max_layer)
+        obs = self.reset()
+        self._set_observation_space(obs)
+        self.policy = policy
+        self.max_layer = max_layer
 
-        self.agent = DQNAgent(scope='dqn',
-                         action_num=self.action_num,
-                         replay_memory_size=int(1e4),
-                         replay_memory_init_size=500,
-                         norm_step=200,
-                         state_shape=env.observation_space.shape,
-                         mlp_layers=[32, 64, 128, 64, 32],
-                         device= self.args.device
-                         )
+        # For Experiment #
+        self.random = False
+        self.gcn = False  # GCN Baseline
+        self.enable_skh = True  # only when GCN is false will be useful
+        self.enable_dlayer = True
+        self.baseline_experience = 50
 
+        # buffers for updating
+        # self.buffers = {i: [] for i in range(max_layer)}
+        self.buffers = defaultdict(list)
+        self.past_performance = [0]
 
-    def training(self):
-
-        features = self.features.to(self.args.device)
-        graph_org = self.dgl_graph.to(self.args.device)
-        graph_org_torch = self.adj_list[0].to(self.args.device)
-        print("Started training...")
-        nb_classes = (self.labels.max() - self.labels.min() + 1).item()
-        self.cfg.append(nb_classes)
-        model_critic = GCN_Fast(self.args.ft_size, cfg=self.cfg, final_mlp=0, gnn=self.args.gnn,
-                         dropout=self.args.random_aug_feature).to(self.args.device)
-
-        optimiser_critic = torch.optim.Adam(model_critic.parameters(), lr=self.args.lr, weight_decay=self.args.wd)
-        xent = nn.CrossEntropyLoss()
-        train_lbls = self.labels[self.idx_train]
-        val_lbls = self.labels[self.idx_val]
-        test_lbls = self.labels[self.idx_test]
-
-        cnt_wait = 0
-        best = 1e-9
-        output_acc = 1e-9
-        stop_epoch = 0
-
-        start = time.time()
-        totalL = []
-        # features = F.normalize(features)
-        for epoch in range(self.args.nb_epochs):
-            model_critic.train()
-            optimiser_critic.zero_grad()
-            embeds = model_critic(graph_org, features)
-            embeds_preds = torch.argmax(embeds, dim=1)
-
-            train_embs = embeds[self.idx_train]
-            val_embs = embeds[self.idx_val]
-            test_embs = embeds[self.idx_test]
-
-            loss = F.cross_entropy(train_embs, train_lbls)
-
-            loss.backward()
-            totalL.append(loss.item())
-            optimiser_critic.step()
-
-            ################STA|Eval|###############
-            if epoch % 5 == 0 and epoch != 0:
-                model_critic.eval()
-                embeds = model_critic(graph_org, features)
-                val_acc = accuracy(embeds[self.idx_val], val_lbls)
-                test_acc = accuracy(embeds[self.idx_test], test_lbls)
-                print(test_acc.item())
-                # early stop
-                stop_epoch = epoch
-                if val_acc > best:
-                    best = val_acc
-                    output_acc = test_acc.item()
-                    cnt_wait = 0
-                else:
-                    cnt_wait += 1
-                if cnt_wait == self.args.patience:
-                    break
-            ################END|Eval|###############
-
-        training_time = time.time() - start
-        print("\t[Classification] ACC: {:.4f} | stop_epoch: {:}| training_time: {:.4f} ".format(
-            output_acc, stop_epoch, training_time))
-        return output_acc, training_time, stop_epoch
+    def seed(self, random_seed):
+        torch.manual_seed(random_seed)
+        random.seed(random_seed)
+        np.random.seed(random_seed)
 
     def init_k_hop(self, max_hop):
+        adj = copy.deepcopy(self.adj)
+        adj[range(adj.shape[0]),range(adj.shape[0])] = 0.0
+        sp_adj = F.normalize(adj, p = 1).numpy()
 
-        dd = self.graph_org_torch
-        self.adjs = [dd]
+        sp_adj = csr_matrix(sp_adj)
+        dd = sp_adj
+        self.adjs = [sparse_mx_to_torch_sparse_tensor(dd).to_dense()]
         for i in range(max_hop):
-            dd = torch.mm(dd, self.graph_org_torch.t())
-            self.adjs.append(dd)
+            dd *= sp_adj
+            self.adjs.append(sparse_mx_to_torch_sparse_tensor(dd).to_dense())
 
     def reset(self):
         index = self.train_indexes[self.i]
-        state = self.data.x[index].to('cpu').numpy()
+        state = self.feature[index].to('cpu').numpy()
         self.optimizer.zero_grad()
         return state
 
@@ -138,9 +100,9 @@ class RLGL(embedder_single):
             action = random.randint(1, 5)
         # train one step
         index = self.train_indexes[self.i]
-        pred = self.model(action, self.data)[index]
+        pred = self.model(action, self.feature, self.adj)[index]
         pred = pred.unsqueeze(0)
-        y = self.data.y[index]
+        y = self.label[index]
         y = y.unsqueeze(0)
         F.nll_loss(pred, y).backward()
         self.optimizer.step()
@@ -153,7 +115,7 @@ class RLGL(embedder_single):
         self.i = self.i % len(self.train_indexes)
         next_index = self.train_indexes[self.i]
         # next_state = self.data.x[next_index].to('cpu').numpy()
-        next_state = self.data.x[next_index].numpy()
+        next_state = self.feature[next_index].numpy()
         if self.i == 0:
             done = True
         else:
@@ -164,7 +126,7 @@ class RLGL(embedder_single):
         start = self.i
         end = (self.i + self.batch_size) % len(self.train_indexes)
         index = self.train_indexes[start:end]
-        state = self.data.x[index].to('cpu').numpy()
+        state = self.feature[index].to('cpu').numpy()
         self.optimizer.zero_grad()
         return state
 
@@ -191,7 +153,7 @@ class RLGL(embedder_single):
             index = self.train_indexes[start:end]
         else:
             index = self.stochastic_k_hop(actions, index)
-        next_state = self.data.x[index].to('cpu').numpy()
+        next_state = self.feature[index].to('cpu').numpy()
         # next_state = self.data.x[index].numpy()
         val_acc_dict = self.eval_batch()
         val_acc = [val_acc_dict[a] for a in actions]
@@ -206,7 +168,7 @@ class RLGL(embedder_single):
     def stochastic_k_hop(self, actions, index):
         next_batch = []
         for idx, act in zip(index, actions):
-            prob = self.adjs[act].getrow(idx).toarray().flatten()
+            prob = self.adjs[act][idx].numpy()
             cand = np.array([i for i in range(len(prob))])
             next_cand = np.random.choice(cand, p=prob)
             next_batch.append(next_cand)
@@ -214,23 +176,25 @@ class RLGL(embedder_single):
 
     def train(self, action, indexes):
         self.model.train()
-        pred = self.model(action, self.data)[indexes]
-        y = self.data.y[indexes]
+        self.adj = self.adj.to(self.device)
+        pred = self.model(action, self.feature, self.adj)[indexes]
+        y = self.label[indexes]
         F.nll_loss(pred, y).backward()
         self.optimizer.step()
 
     def eval_batch(self):
         self.model.eval()
+        self.adj = self.adj.to(self.device)
         batch_dict = {}
-        val_index = np.where(self.data.val_mask.to('cpu').numpy() == True)[0]
-        val_states = self.data.x[val_index].to('cpu').numpy()
+
+        val_states = self.feature[self.val_indexes].to('cpu').numpy()
         if self.random == True:
-            val_acts = np.random.randint(1, 5, len(val_index))
+            val_acts = np.random.randint(1, 5, len(self.val_indexes))
         elif self.gcn == True or self.enable_dlayer == False:
-            val_acts = np.full(len(val_index), 3)
+            val_acts = np.full(len(self.val_indexes), 3)
         else:
             val_acts = self.policy.eval_step(val_states)
-        s_a = zip(val_index, val_acts)
+        s_a = zip(self.val_indexes, val_acts)
         for i, a in s_a:
             if a not in batch_dict.keys():
                 batch_dict[a] = []
@@ -239,25 +203,26 @@ class RLGL(embedder_single):
         acc = {a: 0.0 for a in range(self.max_layer)}
         for a in batch_dict.keys():
             idx = batch_dict[a]
-            logits = self.model(a, self.data)
+            logits = self.model(a, self.feature, self.adj)
             pred = logits[idx].max(1)[1]
             # acc += pred.eq(self.data.y[idx]).sum().item() / len(idx)
-            acc[a] = pred.eq(self.data.y[idx]).sum().item() / len(idx)
+            acc[a] = pred.eq(self.label[idx]).sum().item() / len(idx)
         # acc = acc / len(batch_dict.keys())
         return acc
 
     def test_batch(self):
         self.model.eval()
+        self.adj = self.adj.to(self.device)
         batch_dict = {}
-        test_index = np.where(self.data.test_mask.to('cpu').numpy() == True)[0]
-        val_states = self.data.x[test_index].to('cpu').numpy()
+
+        val_states = self.feature[self.test_indexes].to('cpu').numpy()
         if self.random == True:
-            val_acts = np.random.randint(1, 5, len(test_index))
+            val_acts = np.random.randint(1, 5, len(self.test_indexes))
         elif self.gcn == True or self.enable_dlayer == False:
-            val_acts = np.full(len(test_index), 3)
+            val_acts = np.full(len(self.test_indexes), 3)
         else:
             val_acts = self.policy.eval_step(val_states)
-        s_a = zip(test_index, val_acts)
+        s_a = zip(self.test_indexes, val_acts)
         for i, a in s_a:
             if a not in batch_dict.keys():
                 batch_dict[a] = []
@@ -265,26 +230,65 @@ class RLGL(embedder_single):
         acc = 0.0
         for a in batch_dict.keys():
             idx = batch_dict[a]
-            logits = self.model(a, self.data)
+            logits = self.model(a, self.feature, self.adj)
             pred = logits[idx].max(1)[1]
-            acc += pred.eq(self.data.y[idx]).sum().item() / len(idx)
+            acc += pred.eq(self.label[idx]).sum().item() / len(idx)
         acc = acc / len(batch_dict.keys())
         return acc
 
     def check(self):
         self.model.eval()
-        train_index = np.where(self.data.train_mask.to('cpu').numpy() == True)[0]
-        tr_states = self.data.x[train_index].to('cpu').numpy()
+
+        tr_states = self.feature[self.train_indexes].to('cpu').numpy()
         tr_acts = self.policy.eval_step(tr_states)
 
-        val_index = np.where(self.data.val_mask.to('cpu').numpy() == True)[0]
-        val_states = self.data.x[val_index].to('cpu').numpy()
+
+        val_states = self.feature[self.val_indexes].to('cpu').numpy()
         val_acts = self.policy.eval_step(val_states)
 
-        test_index = np.where(self.data.test_mask.to('cpu').numpy() == True)[0]
-        test_states = self.data.x[test_index].to('cpu').numpy()
+
+        test_states = self.feature[self.test_indexes].to('cpu').numpy()
         test_acts = self.policy.eval_step(test_states)
 
-        return (train_index, tr_states, tr_acts), (val_index, val_states, val_acts), (
-        test_index, test_states, test_acts)
+        return (self.train_indexes, tr_states, tr_acts), (self.val_indexes, val_states, val_acts), (
+        self.test_indexes, test_states, test_acts)
+
+
+class RLGL(embedder_single):
+    def __init__(self, args):
+        embedder_single.__init__(self, args)
+        self.args = args
+        self.cfg = args.cfg
+        nb_classes = (self.labels.max() - self.labels.min() + 1).item()
+        self.cfg.append(nb_classes)
+        self.graph_org_torch = self.adj_list[0]
+        self.features = self.features
+        self.action_num = 5
+        self.max_episodes = 325
+        self.max_timesteps = 10
+
+
+        self.data_split = zip(self.idx_train.cpu(), self.idx_val.cpu(), self.idx_test.cpu())
+        self.env = gcn_env(self.args, self.graph_org_torch, self.features, self.data_split, self.labels)
+        self.agent = DQNAgent(scope='dqn',
+                         action_num=self.action_num,
+                         replay_memory_size=int(1e4),
+                         replay_memory_init_size=500,
+                         norm_step=200,
+                         state_shape= self.args.ft_size,
+                         mlp_layers=[32, 64, 128, 64, 32],
+                         device= self.args.device
+                         )
+
+        self.env.policy = self.agent
+    def training(self):
+        print("Training Meta-policy on Validation Set")
+        last_val = 0
+        for i_episode in range(1, self.max_episodes + 1):
+            loss, reward, (val_acc, reward) = self.agent.learn(self.env, self.max_timesteps)  # debug = (val_acc, reward)
+            if val_acc > last_val:  # check whether gain improvement on validation set
+                best_policy = copy.deepcopy(self.agent)  # save the best policy
+            last_val = val_acc
+            print("Training Meta-policy:", i_episode, "Val_Acc:", val_acc, "Avg_reward:", reward)
+        return last_val, last_val, last_val
 

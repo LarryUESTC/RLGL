@@ -108,32 +108,6 @@ class DQNAgent(object):
                  learning_rate=0.0005,
                  device=None):
 
-        '''
-        Q-Learning algorithm for off-policy TD control using Function Approximation.
-        Finds the optimal greedy policy while following an epsilon-greedy policy.
-
-        Args:
-            scope (str): The name of the DQN agent
-            env (object): The Environment.
-            replay_memory_size (int): Size of the replay memory
-            replay_memory_init_size (int): Number of random experiences to sampel when initializing
-              the reply memory.
-            update_target_estimator_every (int): Copy parameters from the Q estimator to the
-              target estimator every N steps
-            discount_factor (float): Gamma discount factor
-            epsilon_start (int): Chance to sample a random action when taking an action.
-              Epsilon is decayed over time and this is the start value
-            epsilon_end (int): The final minimum value of epsilon after decaying is done
-            epsilon_decay_steps (int): Number of steps to decay epsilon over
-            batch_size (int): Size of batches to sample from the replay memory
-            evaluate_every (int): Evaluate every N steps
-            action_num (int): The number of the actions
-            state_space (list): The space of the state vector
-            norm_step (int): The number of the step used form noramlize state
-            mlp_layers (list): The layer number and the dimension of each layer in MLP
-            learning_rate (float): The learning rate of the DQN agent.
-            device (torch.device): whether to use the cpu or gpu
-        '''
         self.scope = scope
         self.replay_memory_init_size = replay_memory_init_size
         self.update_target_estimator_every = update_target_estimator_every

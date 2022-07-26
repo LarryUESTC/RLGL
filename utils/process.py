@@ -34,10 +34,10 @@ def load_single_graph(args=None):
     v = torch.FloatTensor(torch.ones([data.num_edges]))
     A_sp = torch.sparse.FloatTensor(i, v, torch.Size([data.num_nodes, data.num_nodes]))
     A = A_sp.to_dense()
-    A_nomal = normalize_graph(A)
+    A_nomal = row_normalize(A)
     I = torch.eye(A.shape[1]).to(A.device)
     A_I = A + I
-    A_I_nomal = normalize_graph(A_I)
+    A_I_nomal = row_normalize(A_I)
     label = data.y
 
 
@@ -195,6 +195,13 @@ def preprocess_features(features):
         return features.todense()
     except:
         return features
+
+def row_normalize(A):
+    """Row-normalize sparse matrix"""
+    rowsum = A.sum(dim=-1).clamp(min=0.)
+    r_inv = rowsum.pow(-1)
+    A = r_inv.unsqueeze(-1) * A
+    return A
 
 def normalize_adj(adj):
     """Symmetrically normalize adjacency matrix."""
