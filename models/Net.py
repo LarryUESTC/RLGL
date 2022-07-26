@@ -283,9 +283,6 @@ class GCN_Fast(nn.Module):
 class Action_Net(nn.Module):
     def __init__(self, n_in, cfg=None, batch_norm=False, act='relu', gnn='GCN', dropout=0.0, final_mlp=0):
         super(Action_Net, self).__init__()
-        # self.MLP = make_mlplayers(n_in, cfg, batch_norm=False, act=None, dropout = 0, out_layer =None)
-        # self.backbone = make_GCNlayers(n_in, cfg, batch_norm=False, act='gelu', dropout = dropout, out_layer =cfg[-1])
-
         self.dropout = dropout
         self.bat = batch_norm
         self.act = act
@@ -311,14 +308,13 @@ class Action_Net(nn.Module):
         self.GCN_layers = nn.Sequential(*GCN_layers)
         self.act_layers = nn.Sequential(*act_layers)
         self.bat_layers = nn.Sequential(*bat_layers)
-        # self.dop_layers = nn.Sequential(*dop_layers)
         if self.final_mlp:
             self.mlp = nn.Linear(in_channels, final_mlp)
         else:
             self.mlp = None
 
-        # for m in self.modules():
-        #     self.weights_init(m)
+        for m in self.modules():
+            self.weights_init(m)
 
     def weights_init(self, m):
         if isinstance(m, nn.Linear):
@@ -332,24 +328,8 @@ class Action_Net(nn.Module):
                 except:
                     pass
 
-    def get_embedding(self, A_a, X_a):
-        for i in range(self.layer_num):
-            X_a = self.GCN_layers[i](A_a, X_a)
-            if self.act:
-                X_a = self.act_layers[i](X_a)
-            if self.bat:
-                X_a = self.bat_layers[i](X_a)
-
-        if self.final_mlp:
-            embeding_a = self.mlp(X_a)
-        else:
-            embeding_a = X_a
-        return embeding_a.detach()
-
     def forward(self, A_a, X_a):
-        # X_a = F.dropout(X_a, 0.2)
         # X_a = F.dropout(X_a, self.dropout, training=self.training)
-
         for i in range(self.layer_num):
             X_a = self.GCN_layers[i](A_a, X_a)
             if self.gnn == "GAT":
@@ -361,16 +341,10 @@ class Action_Net(nn.Module):
             if self.dropout > 0 and i != self.layer_num - 1:
                 X_a = F.dropout(X_a, self.dropout, training=self.training)
         if self.final_mlp:
-            embeding_a = self.mlp(X_a)
+            self.embedding = self.mlp(X_a)
         else:
-            embeding_a = X_a
-        # X_a = F.relu(self.GCN_layers[0](A_a, X_a))
-        # embeding_a = self.GCN_layers[1](A_a, X_a)
-        # inputx = F.dropout(X_a, 0.1, training=self.training)
-        # x = self.GCN_layers[0](A_a, inputx)
-        # x = F.relu(x)
-        # x = F.dropout(x, 0.1, training=self.training)
-        # embeding_a = self.GCN_layers[1](A_a, x)
-        # embeding_a = (embeding_a - embeding_a.mean(0)) / embeding_a.std(0)
+            self.embedding = X_a
 
-        return embeding_a
+        return  F.log_softmax(self.embedding, dim=1)
+
+
