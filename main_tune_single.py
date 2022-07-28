@@ -42,7 +42,7 @@ def main_one(config, checkpoint_dir = None):
         "time": None,
     }
 
-    TABLE_NAME = 'main_RLGL_Semi_0'
+    TABLE_NAME = 'main_RLGL_' + current_args.task + '_' + current_args.method + '_0'
     try:
         writer = WriteToDatabase({'host': "postgres.kongfei.life", "port": "40201",
                                   "database": "pengliang", "user": "pengliang", "password": "262300aa"},
