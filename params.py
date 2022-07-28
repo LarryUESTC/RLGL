@@ -1,121 +1,180 @@
 import argparse
 
+################STA|Semi-supervised Task|###############
 
-def parse_args(dataset):
-    parser = argparse.ArgumentParser()
-    if dataset == 'acm':
-        parser.add_argument('--cfg', type=int, default=[512, 128], help='hidden dimension')
-        parser.add_argument('--dataset', nargs='?', default='acm')
-        parser.add_argument('--sc', type=float, default=3.0, help='GCN self connection')
-        parser.add_argument('--sparse', type=bool, default=True, help='sparse adjacency matrix')
-        parser.add_argument('--nb_epochs', type=int, default=400, help='the number of epochs')
-        parser.add_argument('--lr', type=float, default=0.0005, help='learning rate')
-        parser.add_argument('--patience', type=int, default=50, help='patience for early stopping')
-        parser.add_argument('--gpu_num', type=int, default=0, help='the id of gpu to use')
-        parser.add_argument('--seed', type=int, default=0, help='the seed to use')
-        parser.add_argument('--test_epo', type=int, default=50, help='test_epo')
-        parser.add_argument('--test_lr', type=int, default=0.01, help='test_lr')
-        parser.add_argument('--save_root', type=str, default="./saved_model", help='root for saving the model')
-        parser.add_argument('--num_clusters', type=float, default=3, help='')
-        parser.add_argument('--neg_num', type=int, default=2, help='the number of negtives')
-        parser.add_argument('--margin1', type=float, default=0.8, help='')
-        parser.add_argument('--margin2', type=float, default=0.4, help='')
-        parser.add_argument('--w_s', type=float, default=10, help='weight of loss L_s')
-        parser.add_argument('--w_c', type=float, default=10, help='weight of loss L_c')
-        parser.add_argument('--w_ms', type=float, default=1, help='weight of loss L_ms')
-        parser.add_argument('--w_u', type=float, default=1, help='weight of loss L_u')
-    elif dataset == 'dblp':
-        parser.add_argument('--cfg', type=int, default=[512, 128], help='hidden dimension')
-        parser.add_argument('--dataset', nargs='?', default='dblp')
-        parser.add_argument('--sc', type=float, default=3.0, help='GCN self connection')
-        parser.add_argument('--sparse', type=bool, default=True, help='sparse adjacency matrix')
-        parser.add_argument('--nb_epochs', type=int, default=7000, help='the number of epochs')
-        parser.add_argument('--lr', type=float, default=0.0005, help='learning rate')
-        parser.add_argument('--patience', type=int, default=100, help='patience for early stopping')
-        parser.add_argument('--gpu_num', type=int, default=0, help='the id of gpu to use')
-        parser.add_argument('--seed', type=int, default=0, help='the seed to use')
-        parser.add_argument('--test_epo', type=int, default=100, help='test_epo')
-        parser.add_argument('--test_lr', type=int, default=0.2, help='test_lr')
-        parser.add_argument('--save_root', type=str, default="./saved_model", help='root for saving the model')
-        parser.add_argument('--neg_num', type=int, default=5, help='the number of negtives')
-        parser.add_argument('--margin1', type=float, default=0.9, help='')
-        parser.add_argument('--margin2', type=float, default=0.2, help='')
-        parser.add_argument('--w_s', type=float, default=10, help='weight of loss L_s')
-        parser.add_argument('--w_c', type=float, default=10, help='weight of loss L_c')
-        parser.add_argument('--w_ms', type=float, default=5, help='weight of loss L_ms')
-        parser.add_argument('--w_u', type=float, default=6, help='weight of loss L_u')
+class Semi(object):
+    def __init__(self, method, dataset):
+        self.parser = argparse.ArgumentParser()
+        self.parser.add_argument('--dataset', nargs='?', default=dataset)
+        self.parser.add_argument('--method', nargs='?', default=method)
+        self.parser.add_argument('--lr', type=float, default=0.0005, help='learning rate')
+        self.parser.add_argument('--patience', type=int, default=40, help='patience for early stopping')
+        self.parser.add_argument('--seed', type=int, default=0, help='the seed to use')
+        self.parser.add_argument('--save_root', type=str, default="./saved_model", help='root for saving the model')
+        self.parser.add_argument('--random_aug_feature', type=float, default=0.2, help='RA feature')
+        self.parser.add_argument('--random_aug_edge', type=float, default=0.2, help='RA graph')
+        self.args, _ = self.parser.parse_known_args()
 
-    elif dataset == 'imdb':
-        parser.add_argument('--cfg', type=int, default=[512, 256], help='hidden dimension')
-        parser.add_argument('--dataset', nargs='?', default='imdb')
-        parser.add_argument('--sc', type=float, default=3.0, help='GCN self connection')
-        parser.add_argument('--sparse', type=bool, default=True, help='sparse adjacency matrix')
-        parser.add_argument('--nb_epochs', type=int, default=400, help='the number of epochs')
-        parser.add_argument('--lr', type=float, default=0.0005, help='learning rate')  # imdb 0.0005
-        parser.add_argument('--patience', type=int, default=20, help='patience for early stopping')
-        parser.add_argument('--gpu_num', type=int, default=1, help='the id of gpu to use')
-        parser.add_argument('--seed', type=int, default=0, help='the seed to use')
-        parser.add_argument('--test_epo', type=int, default=50, help='test_epo')
-        parser.add_argument('--test_lr', type=int, default=0.3, help='test_lr')
-        parser.add_argument('--save_root', type=str, default="./saved_model", help='root for saving the model')
-        parser.add_argument('--neg_num', type=int, default=6, help='the number of negtives')
-        parser.add_argument("--learning_rate", default=1e-4, type=float,
-                            help="The initial learning rate for Adam.")
-        parser.add_argument("--adam_epsilon", default=1e-8, type=float,
-                            help="Epsilon for Adam optimizer.")
-        parser.add_argument("--lr_scheduler", type=str, default="cosine",
-                            choices=["linear", "cosine", "cosine_restart"],
-                            help="Choose the optimizer to use. Default RecAdam.")
-        parser.add_argument('--margin1', type=float, default=0.5, help='')
-        parser.add_argument('--margin2', type=float, default=0.3, help='')
-        parser.add_argument('--w_s', type=float, default=10, help='weight of loss L_s')
-        parser.add_argument('--w_c', type=float, default=15, help='weight of loss L_c')
-        parser.add_argument('--w_ms', type=float, default=10, help='weight of loss L_ms')
-        parser.add_argument('--w_u', type=float, default=0.01, help='weight of loss L_u')
+    def replace(self):
+        pass
 
-    elif dataset == 'amazon':
-        parser = argparse.ArgumentParser()
-        parser.add_argument('--cfg', type=int, default=[512, 256], help='hidden dimension')
-        parser.add_argument('--dataset', nargs='?', default='amazon')
-        parser.add_argument('--sc', type=float, default=3.0, help='GCN self connection')
-        parser.add_argument('--sparse', type=bool, default=True, help='sparse adjacency matrix')
-        parser.add_argument('--nb_epochs', type=int, default=6000, help='the number of epochs')
-        parser.add_argument('--lr', type=float, default=0.0005, help='learning rate')
-        parser.add_argument('--patience', type=int, default=100, help='patience for early stopping')
-        parser.add_argument('--gpu_num', type=int, default=3, help='the id of gpu to use')
-        parser.add_argument('--seed', type=int, default=0, help='the seed to use')
-        parser.add_argument('--test_epo', type=int, default=100, help='test_epo')
-        parser.add_argument('--test_lr', type=int, default=0.1, help='test_lr')
-        parser.add_argument('--save_root', type=str, default="./saved_model", help='root for saving the model')
-        parser.add_argument('--neg_num', type=int, default=3, help='the number of negtives')
-        parser.add_argument('--margin1', type=float, default=0.6, help='')
-        parser.add_argument('--margin2', type=float, default=0.2, help='')
-        parser.add_argument('--w_s', type=float, default=1, help='weight of loss L_s')
-        parser.add_argument('--w_c', type=float, default=20, help='weight of loss L_c')
-        parser.add_argument('--w_ms', type=float, default=0.1, help='weight of loss L_ms')
-        parser.add_argument('--w_u', type=float, default=20, help='weight of loss L_u')
+    def get_parse(self):
+        return self.args
 
+class Semi_Gcn(Semi):
+    def __init__(self, method, dataset):
+        super(Semi_Gcn, self).__init__(method, dataset)
+        ################STA|add new params here|###############
+        # self.parser.add_argument('--random_aug_edge', type=float, default=0.2, help='RA graph')
+        ################END|add new params here|###############
+        self.args, _ = self.parser.parse_known_args()
+
+        ################STA|replace params here|###############
+        self.replace()
+        ################END|replace params here|###############
+
+    def replace(self):
+        super(Semi_Gcn, self).replace()
+        self.args.__setattr__('method', 'Gcn')
+        self.args.__setattr__('lr', 0.05)
+
+class Semi_Gcn_Cora(Semi_Gcn):
+    def __init__(self, method, dataset):
+        super(Semi_Gcn, self).__init__(method, dataset)
+        self.args, _ = self.parser.parse_known_args()
+        self.replace()
+
+    def replace(self):
+        super(Semi_Gcn_Cora, self).replace()
+        self.args.__setattr__('dataset', 'Cora')
+        self.args.__setattr__('lr', 0.01)
+
+################END|Semi-supervised Task|###############
+
+
+
+
+################STA|unsupervised Task |###############
+
+class Unsup(object):
+    def __init__(self, method, dataset):
+        self.parser = argparse.ArgumentParser()
+        self.parser.add_argument('--dataset', nargs='?', default=dataset)
+        self.parser.add_argument('--method', nargs='?', default=method)
+        self.parser.add_argument('--lr', type=float, default=0.0005, help='learning rate')
+        self.parser.add_argument('--patience', type=int, default=40, help='patience for early stopping')
+        self.parser.add_argument('--seed', type=int, default=0, help='the seed to use')
+        self.parser.add_argument('--save_root', type=str, default="./saved_model", help='root for saving the model')
+        self.parser.add_argument('--random_aug_feature', type=float, default=0.2, help='RA feature')
+        self.parser.add_argument('--random_aug_edge', type=float, default=0.2, help='RA graph')
+
+        self.parser.add_argument('--cfg', type=int, default=[512, 128], help='hidden dimension')
+        self.parser.add_argument('--nb_epochs', type=int, default=400, help='the number of epochs')
+        self.parser.add_argument('--test_epo', type=int, default=50, help='test_epo')
+        self.parser.add_argument('--test_lr', type=int, default=0.01, help='test_lr')
+
+        self.args, _ = self.parser.parse_known_args()
+
+    def replace(self):
+        pass
+
+    def get_parse(self):
+        return self.args
+
+class Unsup_E2sgrl(Unsup):
+    def __init__(self,  method, dataset):
+        super(Unsup_E2sgrl,self).__init__(method, dataset)
+
+        self.parser.add_argument('--neg_num', type=int, default=2, help='the number of negtives')
+        self.parser.add_argument('--margin1', type=float, default=0.8, help='')
+        self.parser.add_argument('--margin2', type=float, default=0.4, help='')
+        self.parser.add_argument('--w_s', type=float, default=10, help='weight of loss L_s')
+        self.parser.add_argument('--w_c', type=float, default=10, help='weight of loss L_c')
+        self.parser.add_argument('--w_ms', type=float, default=1, help='weight of loss L_ms')
+        self.parser.add_argument('--w_u', type=float, default=1, help='weight of loss L_u')
+
+        self.args, _ = self.parser.parse_known_args()
+        self.replace()
+
+    def replace(self):
+        super(Unsup_E2sgrl, self).replace()
+        # self.args.__setattr__('dataset', 'acm')
+
+class Unsup_E2sgrl_Acm(Unsup_E2sgrl):
+    def __init__(self, method, dataset):
+        super(Unsup_E2sgrl_Acm,self).__init__(method, dataset)
+
+        self.args, _ = self.parser.parse_known_args()
+        self.replace()
+
+    def replace(self):
+        super(Unsup_E2sgrl_Acm, self).replace()
+        self.args.__setattr__('dataset', 'acm')
+
+class Unsup_E2sgrl_Dblp(Unsup_E2sgrl):
+    def __init__(self, method, dataset):
+        super(Unsup_E2sgrl_Dblp,self).__init__(method, dataset)
+
+        self.args, _ = self.parser.parse_known_args()
+        self.replace()
+
+    def replace(self):
+        super(Unsup_E2sgrl_Dblp, self).replace()
+        self.args.__setattr__('dataset', 'dblp')
+
+class Unsup_E2sgrl_Imdb(Unsup_E2sgrl):
+    def __init__(self, method, dataset):
+        super(Unsup_E2sgrl_Imdb,self).__init__(method, dataset)
+
+        self.args, _ = self.parser.parse_known_args()
+        self.replace()
+
+    def replace(self):
+        super(Unsup_E2sgrl_Imdb, self).replace()
+        self.args.__setattr__('dataset', 'imdb')
+
+class Unsup_E2sgrl_Amazon(Unsup_E2sgrl):
+    def __init__(self, method, dataset):
+        super(Unsup_E2sgrl_Amazon,self).__init__(method, dataset)
+
+        self.args, _ = self.parser.parse_known_args()
+        self.replace()
+
+    def replace(self):
+        super(Unsup_E2sgrl_Amazon, self).replace()
+        self.args.__setattr__('dataset', 'amazon')
+
+################END|unsupervised Task |###############
+
+
+
+
+params_key = {
+'Semi': Semi,
+'Semi_Gcn': Semi_Gcn,
+'Semi_Gcn_Cora': Semi_Gcn_Cora,
+'Unsup': Unsup,
+'Unsup_E2sgrl': Unsup_E2sgrl,
+'Unsup_E2sgrl_Acm': Unsup_E2sgrl_Acm,
+'Unsup_E2sgrl_Dblp': Unsup_E2sgrl_Acm,
+'Unsup_E2sgrl_Imdb': Unsup_E2sgrl_Acm,
+'Unsup_E2sgrl_Amazon': Unsup_E2sgrl_Acm,
+}
+
+def parse_args(task, method, dataset):
+
+    name_3 = task + '_' + method + '_' + dataset
+    name_2 = task + '_' + method
+    name_1 = task
+
+    if name_3 in params_key:
+        return params_key[name_3](method, dataset).get_parse()
+    elif name_2 in params_key:
+        return params_key[name_2](method, dataset).get_parse()
+    elif name_1 in params_key:
+        return params_key[name_1](method, dataset).get_parse()
     else:
-        parser.add_argument('--cfg', type=int, default=[512, 128], help='hidden dimension')
-        parser.add_argument('--dataset', nargs='?', default=dataset)
-        parser.add_argument('--sparse', type=bool, default=True, help='sparse adjacency matrix')
-        parser.add_argument('--nb_epochs', type=int, default=400, help='the number of epochs')
-        parser.add_argument('--lr', type=float, default=0.0005, help='learning rate')
-        parser.add_argument('--patience', type=int, default=40, help='patience for early stopping')
-        parser.add_argument('--gpu_num', type=int, default=0, help='the id of gpu to use')
-        parser.add_argument('--seed', type=int, default=0, help='the seed to use')
-        parser.add_argument('--test_epo', type=int, default=50, help='test_epo')
-        parser.add_argument('--test_lr', type=int, default=0.01, help='test_lr')
-        parser.add_argument('--save_root', type=str, default="./saved_model", help='root for saving the model')
-        parser.add_argument('--num_clusters', type=float, default=7, help='')
-        parser.add_argument('--random_aug_feature', type=float, default= 0.2, help='RA feature')
-        parser.add_argument('--random_aug_edge', type=float, default=0.2, help='RA graph')
-        parser.add_argument('--alpha', type=float, default= 1, help='loss alpha')
-        parser.add_argument('--beta', type=float, default=0.1, help='loss beta')
-
-
-    return parser.parse_known_args()
-
+        return None
 
 def printConfig(args):
     arg2value = {}
