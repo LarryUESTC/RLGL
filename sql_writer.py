@@ -63,6 +63,8 @@ def merge_args_and_dict(db_input_dir, dict_args):
                 support_type = "integer"
             elif isinstance(value, float):
                 support_type = "double precision"
+            elif isinstance(value, bool):
+                support_type = "boolean"
             db_input_dir.update({key:[support_type,value]})
     return db_input_dir
 
