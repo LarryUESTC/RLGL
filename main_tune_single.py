@@ -4,6 +4,7 @@ import torch
 from params import parse_args,printConfig
 import os
 from models.SGRL import SGRL, SemiGRL
+from models.RLGRL import RLGL
 from ray import tune
 from ray.tune.suggest.hebo import HEBOSearch
 import ray
