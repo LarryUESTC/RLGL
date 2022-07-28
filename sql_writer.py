@@ -53,6 +53,24 @@ def get_primary_key_and_value(key_type_value):
             primary_value[key] = value
     return primary_key, primary_value
 
+def merge_args_and_dict(db_input_dir, dict_args):
+    for key, value in dict_args.items():
+        if value is not None:
+            support_type = "text"
+            if isinstance(value, list) or isinstance(value, tuple):
+                support_type = "text"
+            elif isinstance(value, int):
+                support_type = "integer"
+            elif isinstance(value, float):
+                support_type = "double precision"
+            db_input_dir.update({key:[support_type,value]})
+    return db_input_dir
+
+def merge_args_and_config(args, config):
+    for key, value in config.items():
+        if value is not None:
+            args.__setattr__(key, value)
+    return args
 
 class PathProjector:
     def __init__(self, database, table_name='gan_model_path_projector'):
@@ -126,9 +144,9 @@ class WriteToDatabase:
         self.init_conn()
         cursor = self.conn.cursor()
         t_str = ""
-        for key, t in primary_params.items():
-            t_str += "{} {},\n".format(key, t)
         for key, t in other_params.items():
+            t_str += "{} {},\n".format(key, t)
+        for key, t in primary_params.items():
             t_str += "{} {},\n".format(key, t)
         pk = list(primary_params.keys())
         pk_str_ = pk[0]
@@ -137,8 +155,6 @@ class WriteToDatabase:
         pk_str = "CONSTRAINT pk_{} PRIMARY KEY ".format(
             self.table_name) + "(" + pk_str_ + ")"
 
-        # print("CREATE TABLE if not exists " + self.table_name +
-        #       "(" + t_str + pk_str + ");")
 
         cursor.execute("CREATE TABLE if not exists " + self.table_name +
                        "(" + t_str + pk_str + ");")

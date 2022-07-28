@@ -9,7 +9,7 @@ from ray import tune
 from ray.tune.suggest.hebo import HEBOSearch
 import ray
 from ray.tune.integration.torch import DistributedTrainableCreator
-from sql_writer import WriteToDatabase, get_primary_key_and_value, get_columns
+from sql_writer import WriteToDatabase, get_primary_key_and_value, get_columns, merge_args_and_dict, merge_args_and_config
 from statistics import mean, stdev
 import socket, getpass, os
 import gc
@@ -18,39 +18,14 @@ TUNE = False
 def main_one(config, checkpoint_dir = None):
 
     ################STA|SQL|###############
-    args.cfg = config['cfg']
-    args.lr = config['lr']
-    args.wd = config['wd']
-    args.nb_epochs = config['nb_epochs']
-    args.test_epo = config['test_epo']
-    args.test_lr = config['test_lr']
-    args.random_aug_feature = config['random_aug_feature']
-    args.random_aug_edge = config['random_aug_edge']
-    args.alpha = config['alpha']
-    args.beta = config['beta']
-    args.gnn = config['gnn']
+    current_args = copy.deepcopy(args)
+    current_args = merge_args_and_config(current_args, config)
     host_name = socket.gethostname()
-    TABLE_NAME = 'main_RLGL_1'
-    PRIMARY_KEY, PRIMARY_VALUE = get_primary_key_and_value(
-        {
-            "name": ["text", host_name + os.path.split(__file__)[-1][:-3]],
-            "data": ["text", args.dataset],
-            'epoch': ["integer", None],
-            'stop_epoch': ["integer", None],
-            "seed": ["integer", None],
-            'nb_epochs': ["integer", config['nb_epochs']],
-            'lr': ["double precision", config['lr']],
-            'wd': ["double precision", config['wd']],
-            'test_epo': ["integer", config['test_epo']],
-            'test_lr': ["double precision", config['test_lr']],
-            'cfg': ["text", str(config['cfg'])],
-            'random_aug_feature': ["double precision", config['random_aug_feature']],
-            'random_aug_edge': ["double precision", config['random_aug_edge']],
-            'alpha': ["double precision", config['alpha']],
-            'beta': ["double precision", config['beta']],
-            "gnn": ["text", config['gnn']],
-        }
-    )
+    db_input_dir = {"name": ["text", host_name + os.path.split(__file__)[-1][:-3]],
+                    "epoch": ["integer", None],
+                    "stop_epoch": ["integer", None],
+                    "seed": ["integer", None],}  #Larry: set key
+    PRIMARY_KEY, PRIMARY_VALUE = get_primary_key_and_value(merge_args_and_dict(copy.deepcopy(db_input_dir), vars(current_args)))
     REFRESH = False
     OVERWRITE = True
 
@@ -61,34 +36,31 @@ def main_one(config, checkpoint_dir = None):
     train_metrics = {
         "acc": None,
         "time": None,
-
     }
     val_metrics = {
         "acc": None,
         "time": None,
     }
 
-
-    writer = WriteToDatabase({'host': "postgres.kongfei.life", "port": "40201",
-                              "database": "pengliang", "user": "pengliang", "password": "262300aa"},
-                             TABLE_NAME,
-                             PRIMARY_KEY,
-                             get_columns(train_metrics, val_metrics, test_metrics),
-                             PRIMARY_VALUE,
-                             PRIMARY_VALUE,
-                             REFRESH,
-                             OVERWRITE)
-    writer.init()
+    TABLE_NAME = 'main_RLGL_RL_0'
+    try:
+        writer = WriteToDatabase({'host': "postgres.kongfei.life", "port": "40201",
+                                  "database": "pengliang", "user": "pengliang", "password": "262300aa"},
+                                 TABLE_NAME,
+                                 PRIMARY_KEY,
+                                 get_columns(train_metrics, val_metrics, test_metrics),
+                                 PRIMARY_VALUE,
+                                 PRIMARY_VALUE,
+                                 REFRESH,
+                                 OVERWRITE)
+        writer.init()
+    except:
+        print("Keys not matched in current table, pls check KEY, or network error")
+        print("Change TABLE_NAME to create a new table")
     ################END|SQL|###############
 
-    args.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    current_args.device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
     ACC_seed = []
-    ACCstd_seed = []
-    Ma_seed = []
-    Mi_seed = []
-    K1_seed = []
-    K2_seed = []
-    St_seed = []
     Time_seed = []
     for seed in range(2020,2024):
 
@@ -173,9 +145,9 @@ def main(args):
     ################END|set tune param|###############
 
 if __name__ == '__main__':
-    dataset = 'Cora' # choice:Cora CiteSeer PubMed
+    dataset = 'PubMed' # choice:Cora CiteSeer PubMed
     args, unknown = parse_args(dataset)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-    main(dataset)
+    main(args)
