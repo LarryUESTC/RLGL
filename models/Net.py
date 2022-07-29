@@ -72,7 +72,6 @@ def GNN_layer(GNN, d_in, d_out):
         raise NotImplementedError('activation layer [%s] is not found' % GNN)
     return layer
 
-
 def make_mlplayers(in_channel, cfg, batch_norm=False, out_layer =None):
     layers = []
     in_channels = in_channel
@@ -185,7 +184,6 @@ class SUGRL_Fast(nn.Module):
 
         return embeding_a, embeding_b
 
-
 class GCN_Fast(nn.Module):
     def __init__(self, n_in ,cfg = None, batch_norm=False, act='relu', gnn='GCN', dropout = 0.0, final_mlp = 0):
         super(GCN_Fast, self).__init__()
@@ -282,7 +280,6 @@ class GCN_Fast(nn.Module):
         # embeding_a = (embeding_a - embeding_a.mean(0)) / embeding_a.std(0)
 
         return embeding_a
-
 
 class Action_Net(nn.Module):
     def __init__(self, n_in, cfg=None, batch_norm=False, act='relu', gnn='GCN', dropout=0.0, final_mlp=0):
