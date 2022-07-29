@@ -154,7 +154,7 @@ class Rein(object):
         self.parser = argparse.ArgumentParser()
         self.parser.add_argument('--dataset', nargs='?', default=dataset)
         self.parser.add_argument('--method', nargs='?', default=method)
-        self.parser.add_argument('--task', type=str, default='semi')
+        self.parser.add_argument('--task', type=str, default='rein')
         self.parser.add_argument('--lr', type=float, default=0.0005, help='learning rate')
         self.parser.add_argument('--patience', type=int, default=40, help='patience for early stopping')
         self.parser.add_argument('--seed', type=int, default=0, help='the seed to use')
