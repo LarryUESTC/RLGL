@@ -1,4 +1,6 @@
-# RLGL
+# Grpah Playground
+
+![image](utils/data/github.png)
 
 # todo list:
 
