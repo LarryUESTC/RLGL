@@ -2,7 +2,7 @@
 
 ![image](utils/data/github.png)
 
-# todo list:
+# Todo List:
 
 - [ ] 添加supervised learning
 - [ ] 添加图像数据集
