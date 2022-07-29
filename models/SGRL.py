@@ -99,7 +99,7 @@ class SGRL(embedder_single):
                training_time, stop_epoch
 
 
-class SemiGRL(embedder_single):
+class GCN(embedder_single):
     def __init__(self, args):
         embedder_single.__init__(self, args)
         self.args = args

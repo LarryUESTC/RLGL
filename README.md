@@ -1,4 +1,4 @@
-# Grpah Playground
+# Graph Playground
 
 ![image](utils/data/github.png)
 

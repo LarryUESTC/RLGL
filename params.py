@@ -148,6 +148,28 @@ class Unsup_E2sgrl_Amazon(Unsup_E2sgrl):
 
 ################END|unsupervised Task |###############
 
+################STA|Reinforcement Learning|###############
+class Rein(object):
+    def __init__(self, method, dataset):
+        self.parser = argparse.ArgumentParser()
+        self.parser.add_argument('--dataset', nargs='?', default=dataset)
+        self.parser.add_argument('--method', nargs='?', default=method)
+        self.parser.add_argument('--task', type=str, default='semi')
+        self.parser.add_argument('--lr', type=float, default=0.0005, help='learning rate')
+        self.parser.add_argument('--patience', type=int, default=40, help='patience for early stopping')
+        self.parser.add_argument('--seed', type=int, default=0, help='the seed to use')
+        self.parser.add_argument('--save_root', type=str, default="./saved_model", help='root for saving the model')
+        self.parser.add_argument('--random_aug_feature', type=float, default=0.2, help='RA feature')
+        self.parser.add_argument('--random_aug_edge', type=float, default=0.2, help='RA graph')
+        self.args, _ = self.parser.parse_known_args()
+
+    def replace(self):
+        pass
+
+    def get_parse(self):
+        return self.args
+
+################END|Reinforcement Learning|###############
 
 params_key = {
 'Semi': Semi,
@@ -159,6 +181,7 @@ params_key = {
 'Unsup_E2sgrl_Dblp': Unsup_E2sgrl_Acm,
 'Unsup_E2sgrl_Imdb': Unsup_E2sgrl_Acm,
 'Unsup_E2sgrl_Amazon': Unsup_E2sgrl_Acm,
+'Rein': Rein,
 }
 
 def parse_args(task, method, dataset):
