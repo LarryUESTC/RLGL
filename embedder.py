@@ -4,11 +4,11 @@ from termcolor import cprint
 
 class embedder:
     def __init__(self, args):
-        # args.gpu_num_ = args.gpu_num
-        # if args.gpu_num_ == -1:
-        #     args.device = 'cpu'
-        # else:
-        #     args.device = torch.device("cuda:" + str(args.gpu_num_) if torch.cuda.is_available() else "cpu")
+        args.gpu_num_ = args.gpu_num
+        if args.gpu_num_ == -1:
+            args.device = 'cpu'
+        else:
+            args.device = torch.device("cuda:" + str(args.gpu_num_) if torch.cuda.is_available() else "cpu")
         cprint("## Loading Dataset ##", "yellow")
 
         if args.dataset == "dblp":
@@ -22,6 +22,9 @@ class embedder:
             features = process.preprocess_features(features)
         if args.dataset == "amazon":
             adj_list, features, labels, idx_train, idx_val, idx_test, adj_fusion = process.load_amazon(args.sc)
+            features = process.preprocess_features(features)
+        if args.dataset == "freebase":
+            adj_list, features, labels, idx_train, idx_val, idx_test = process.load_freebase(args.sc)
             features = process.preprocess_features(features)
 
         adj_list = [process.sparse_mx_to_torch_sparse_tensor(adj) for adj in adj_list]
@@ -44,7 +47,11 @@ class embedder:
 
 class embedder_single:
     def __init__(self, args):
-
+        args.gpu_num_ = args.gpu_num
+        if args.gpu_num_ == -1:
+            args.device = 'cpu'
+        else:
+            args.device = torch.device("cuda:" + str(args.gpu_num_) if torch.cuda.is_available() else "cpu")
         cprint("## Loading Dataset ##", "yellow")
 
         adj_list, features, labels, idx_train, idx_val, idx_test = process.load_single_graph(args)

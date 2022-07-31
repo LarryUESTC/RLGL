@@ -3,6 +3,7 @@ from models.RLGRL import RLGL
 from models.SGRL import SGRL, GCN
 from models.RLG import RLG
 
+
 method_dict = {
 'E2_SGRL':E2_SGRL,
 'GCN':GCN,

@@ -19,15 +19,15 @@ def load_single_graph(args=None):
     data = dataset[0]
     if args.dataset == 'Cora':
 
-        idx_train = data.train_mask.ravel()
-        idx_val = data.val_mask.ravel()
-        idx_test = data.test_mask.ravel()
+        idx_train = data.train_mask#.ravel()
+        idx_val = data.val_mask#.ravel()
+        idx_test = data.test_mask#.ravel()
         idx_test[:] = False
         idx_test[range(500, 1500)]=True
     else:
-        idx_train = data.train_mask.ravel()
-        idx_val = data.val_mask.ravel()
-        idx_test = data.test_mask.ravel()
+        idx_train = data.train_mask#.ravel()
+        idx_val = data.val_mask#.ravel()
+        idx_test = data.test_mask#.ravel()
 
 
     i = torch.LongTensor([data.edge_index[0].numpy(), data.edge_index[1].numpy()])
@@ -175,6 +175,34 @@ def load_amazon(sc=3):
 
     return adj_list, truefeatures, label, idx_train, idx_val, idx_test, adj_fusion
 
+
+def load_freebase(sc=None):
+    type_num = 3492
+    ratio = [20, 40, 60]
+    # The order of node types: 0 m 1 d 2 a 3 w
+    path = "utils/data/freebase/"
+    label = np.load(path + "labels.npy").astype('int32')
+    label = encode_onehot(label)
+
+    feat_m = sp.eye(type_num)
+
+    # Because none of M, D, A or W has features, we assign one-hot encodings to all of them.
+    mam = sp.load_npz(path + "mam.npz")
+    mdm = sp.load_npz(path + "mdm.npz")
+    mwm = sp.load_npz(path + "mwm.npz")
+    # pos = sp.load_npz(path + "pos.npz")
+    train = [np.load(path + "train_" + str(i) + ".npy") for i in ratio]
+    test = [np.load(path + "test_" + str(i) + ".npy") for i in ratio]
+    val = [np.load(path + "val_" + str(i) + ".npy") for i in ratio]
+
+    label = torch.FloatTensor(label)
+    adj_list = [mam, mdm, mwm]
+
+    # pos = sparse_mx_to_torch_sparse_tensor(pos)
+    train = [torch.LongTensor(i) for i in train]
+    val = [torch.LongTensor(i) for i in val]
+    test = [torch.LongTensor(i) for i in test]
+    return  adj_list, feat_m, label, train[0], val[0], test[0]
 
 def encode_onehot(labels):
     labels = labels.reshape(-1, 1)

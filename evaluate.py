@@ -23,7 +23,7 @@ def evaluate(embeds, idx_train, idx_val, idx_test, labels, seed,epoch,lr ,isTest
         val_lbls = torch.argmax(labels[idx_val], dim=1)
         test_lbls = torch.argmax(labels[idx_test], dim=1)
     except:
-        nb_classes = labels.max() - labels.min() +1
+        nb_classes = (labels.max() - labels.min() +1).item()
         train_lbls = labels[idx_train]
         val_lbls = labels[idx_val]
         test_lbls = labels[idx_test]
