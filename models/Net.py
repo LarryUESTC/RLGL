@@ -13,6 +13,41 @@ from torch_geometric.nn import GCNConv, ChebConv
 # torch.cuda.manual_seed_all(0)
 # random.seed(0)
 
+
+# Applies an average on seq, of shape (nodes, features)
+class AvgReadout(nn.Module):
+    def __init__(self):
+        super(AvgReadout, self).__init__()
+
+    def forward(self, seq):
+            return torch.mean(seq, 0) # 计算各特征在所有结点的均值
+
+
+class Discriminator(nn.Module):
+    def __init__(self, n_h):
+        super(Discriminator, self).__init__()
+        self.f_k = nn.Bilinear(n_h, n_h, 1)
+
+        for m in self.modules():
+            self.weights_init(m)
+
+    def weights_init(self, m):
+        if isinstance(m, nn.Bilinear):
+            torch.nn.init.xavier_uniform_(m.weight.data)
+            if m.bias is not None:
+                m.bias.data.fill_(0.0)
+
+    def forward(self, c, h_pl, h_mi):
+        c_x = c.expand_as(h_pl)
+
+        sc_1 = torch.squeeze(self.f_k(h_pl, c_x), 1)
+        sc_2 = torch.squeeze(self.f_k(h_mi, c_x), 1)
+
+        logits = torch.cat((sc_1, sc_2))
+
+        return logits
+
+
 def act_layer(act, inplace=False, neg_slope=0.2, n_prelu=1):
     # activation layer
 

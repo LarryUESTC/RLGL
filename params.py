@@ -73,7 +73,7 @@ class Unsup(object):
 
         self.parser.add_argument('--cfg', type=int, default=[512, 128], help='hidden dimension')
         self.parser.add_argument('--nb_epochs', type=int, default=400, help='the number of epochs')
-        self.parser.add_argument('--test_epo', type=int, default=50, help='test_epo')
+        self.parser.add_argument('--test_epo', type=int, default=100, help='test_epo')
         self.parser.add_argument('--test_lr', type=int, default=0.01, help='test_lr')
 
         self.args, _ = self.parser.parse_known_args()
@@ -324,6 +324,30 @@ class Unsup_Sugrl_Computers(Unsup_Sugrl):
         self.args.__setattr__('dropout', 0.1)
         self.args.__setattr__('test_epo', 300)
 
+class Unsup_Dgi(Unsup):
+    def __init__(self, method, dataset):
+        super(Unsup_Dgi,self).__init__(method, dataset)
+
+        self.parser.add_argument('--wd', type=float, default=0.0, help='weight decay in adam')
+        self.parser.add_argument('--hid_dim', type=int, default=512, help='hidden dimension')
+        self.parser.add_argument('--activation', type=str, default='prelu', help='activation function after gcn')
+
+        self.args, _ = self.parser.parse_known_args()
+
+        self.args.__setattr__('patience', 20)
+        self.args.__setattr__('nb_epochs', 10000)
+        self.args.__setattr__('dataset', dataset)
+        self.args.__setattr__('lr', 0.001)
+        self.args.__setattr__('test_epo', 100)
+        self.args.__setattr__('test_lr', 0.01)
+        self.replace()
+
+    def replace(self):
+        super(Unsup_Dgi, self).replace()
+        self.args.__setattr__('method', 'Dgi')
+
+
+
 ################END|unsupervised Task |###############
 
 ################STA|Reinforcement Learning|###############
@@ -364,6 +388,7 @@ params_key = {
 'Unsup_Sugrl_CiteSeer':Unsup_Sugrl_CiteSeer,
 'Unsup_Sugrl_PubMed':Unsup_Sugrl_PubMed,
 'Unsup_Sugrl_Photo':Unsup_Sugrl_Photo,
+'Unsup_Dgi':Unsup_Dgi,
 'Unsup_Sugrl_Computers':Unsup_Sugrl_Computers,
 'Rein': Rein,
 }
