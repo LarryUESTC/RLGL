@@ -2,3 +2,5 @@
 /.idea/
 run.py
 /save_model/
+/.idea/
+/__pycache__/
