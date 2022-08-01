@@ -1,17 +1,15 @@
 import numpy as np
 import random as random
 import torch
-from params import parse_args,printConfig
-import os
+from params import parse_args
 import models
 
 from ray import tune
-from ray.tune.suggest.hebo import HEBOSearch
 import ray
 from ray.tune.integration.torch import DistributedTrainableCreator
-from sql_writer import WriteToDatabase, get_primary_key_and_value, get_columns, merge_args_and_dict, merge_args_and_config
-from statistics import mean, stdev
-import socket, getpass, os
+from utils.sql_writer import WriteToDatabase, get_primary_key_and_value, get_columns, merge_args_and_dict, merge_args_and_config
+from statistics import mean
+import socket, os
 import gc
 import copy
 TUNE = False
@@ -58,6 +56,11 @@ def main_one(config, checkpoint_dir = None):
         print("Keys not matched in current table, pls check KEY, or network error")
         print("Change TABLE_NAME to create a new table")
     ################END|SQL|###############
+
+    # if args.gpu_num == -1:
+    #     args.device = 'cpu'
+    # else:
+    #     args.device = torch.device("cuda:" + str(args.gpu_num) if torch.cuda.is_available() else "cpu")
 
     current_args.device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
     ACC_seed = []

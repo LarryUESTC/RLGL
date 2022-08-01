@@ -1,17 +1,15 @@
 import numpy as np
 import random as random
 import torch
-from params import parse_args,printConfig
-import os
+from params import parse_args
 import models
 
 from ray import tune
-from ray.tune.suggest.hebo import HEBOSearch
 import ray
 from ray.tune.integration.torch import DistributedTrainableCreator
-from sql_writer import WriteToDatabase, get_primary_key_and_value, get_columns, merge_args_and_dict, merge_args_and_config
-from statistics import mean, stdev
-import socket, getpass, os
+from utils.sql_writer import WriteToDatabase, get_primary_key_and_value, get_columns, merge_args_and_dict, merge_args_and_config
+from statistics import mean
+import socket, os
 import gc
 import copy
 TUNE = False
