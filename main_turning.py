@@ -3,7 +3,6 @@ import random as random
 import torch
 from params import parse_args
 import models
-
 from ray import tune
 import ray
 from ray.tune.integration.torch import DistributedTrainableCreator
