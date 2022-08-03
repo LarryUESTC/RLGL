@@ -69,12 +69,11 @@ def main_one(config, checkpoint_dir = None):
         test_acc, training_time, stop_epoch = embedder.training()
 
         ################STA|write one|###############
-        writer_matric_seed = {'epoch': -1, "seed": seed,"test_time": training_time,"stop_epoch": stop_epoch,}
-        writer.write(writer_matric_seed,
-                     {
-                         "test_acc": test_acc,
-                     }
-                     )
+        try:
+            writer_matric_seed = {'epoch': -1, "seed": seed,"test_time": training_time,"stop_epoch": stop_epoch,}
+            writer.write(writer_matric_seed,{"test_acc": test_acc,})
+        except:
+            print("DataBase is not available, it's fine")
         ################END|write one|###############
         ACC_seed.append(test_acc)
         # St_seed.append(np.mean(test_st))
@@ -83,15 +82,14 @@ def main_one(config, checkpoint_dir = None):
         gc.collect()
 
     ################STA|write seed|###############
-    writer_matric_seed = {'epoch': -2, "seed": -2,"test_time": mean(Time_seed), "stop_epoch": -2
-                          }
-    writer.write(writer_matric_seed,
-                 {
-                     "test_acc": mean(ACC_seed),
-                 }
-                 )
+    try:
+        writer_matric_seed = {'epoch': -2, "seed": -2,"test_time": mean(Time_seed), "stop_epoch": -2}
+        writer.write(writer_matric_seed,{ "test_acc": mean(ACC_seed),})
+    except:
+        print("DataBase is not available, it's fine")
     ################END|write seed|###############
-  
+
+
 def main(args):
     # param set
     ################STA|set tune param|###############
