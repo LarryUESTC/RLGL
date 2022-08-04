@@ -346,7 +346,28 @@ class Unsup_Dgi(Unsup):
         super(Unsup_Dgi, self).replace()
         self.args.__setattr__('method', 'Dgi')
 
+class Unsup_Mvgrl(Unsup):
+    def __init__(self, method, dataset):
+        super(Unsup_Mvgrl,self).__init__(method, dataset)
 
+        self.parser.add_argument('--wd', type=float, default=0.0, help='weight decay in adam')
+        self.parser.add_argument('--hid_dim', type=int, default=512, help='hidden dimension')
+        self.parser.add_argument('--activation', type=str, default='prelu', help='activation function after gcn')
+        self.parser.add_argument('--sample_size', type=int, default=2000, help='number of negative samples')
+
+        self.args, _ = self.parser.parse_known_args()
+
+        self.args.__setattr__('patience', 20)
+        self.args.__setattr__('nb_epochs', 2000)
+        self.args.__setattr__('dataset', dataset)
+        self.args.__setattr__('lr', 0.001)
+        self.args.__setattr__('test_epo', 300)
+        self.args.__setattr__('test_lr', 0.01)
+        self.replace()
+
+    def replace(self):
+        super(Unsup_Mvgrl, self).replace()
+        self.args.__setattr__('method', 'Mvgrl')
 
 ################END|unsupervised Task |###############
 
@@ -388,8 +409,9 @@ params_key = {
 'Unsup_Sugrl_CiteSeer':Unsup_Sugrl_CiteSeer,
 'Unsup_Sugrl_PubMed':Unsup_Sugrl_PubMed,
 'Unsup_Sugrl_Photo':Unsup_Sugrl_Photo,
-'Unsup_Dgi':Unsup_Dgi,
 'Unsup_Sugrl_Computers':Unsup_Sugrl_Computers,
+'Unsup_Dgi':Unsup_Dgi,
+'Unsup_Mvgrl':Unsup_Mvgrl,
 'Rein': Rein,
 }
 

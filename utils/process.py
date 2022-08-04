@@ -3,45 +3,93 @@ import numpy as np
 import pickle as pkl
 import scipy.io as sio
 import scipy.sparse as sp
+from torch import Tensor
+from scipy.sparse import coo_matrix,diags,csr_matrix
 from sklearn.preprocessing import OneHotEncoder
+from torch_geometric.data import Data
+from scipy.linalg import fractional_matrix_power, inv
+from ogb.nodeproppred import PygNodePropPredDataset
+from torch_geometric.utils import to_undirected
 import os.path as osp
 from torch_geometric.datasets import Planetoid, Amazon
 import dgl
 
-def load_single_graph(args=None):
-    if args.dataset in ['Cora', 'CiteSeer', 'PubMed']:
-        path = osp.join(osp.dirname(osp.realpath(__file__)), 'data/')
-        dataset = Planetoid(path, args.dataset)
-    elif args.dataset in ['Photo', 'Computers']:
-        path = osp.join(osp.dirname(osp.realpath(__file__)), 'data/')
-        dataset = Amazon(path, args.dataset, pre_transform=None)  # transform=T.ToSparseTensor(),
+def load_single_graph(args=None,train_ratio=0.1,val_ratio=0.1):
+    if args.dataset in ['Cora', 'CiteSeer', 'PubMed','Photo', 'Computers']:
+        if args.dataset in ['Cora', 'CiteSeer', 'PubMed']:
+            path = osp.join(osp.dirname(osp.realpath(__file__)), 'data/')
+            dataset = Planetoid(path, args.dataset)
+        elif args.dataset in ['Photo', 'Computers']:
+            path = osp.join(osp.dirname(osp.realpath(__file__)), 'data/')
+            dataset = Amazon(path, args.dataset, pre_transform=None)  # transform=T.ToSparseTensor(),
+        data = dataset[0]
+        if args.dataset == 'Cora':
+            idx_train = data.train_mask
+            idx_val = data.val_mask
+            idx_val[:] = False
+            idx_val[range(200, 500)] = True
+            idx_test = data.test_mask
+            idx_test[:] = False
+            idx_test[range(500, 1500)]=True
+        else:
+            idx_train = data.train_mask
+            idx_val = data.val_mask
+            idx_test = data.test_mask
 
-    data = dataset[0]
-    if args.dataset == 'Cora':
+        i = torch.Tensor.long(data.edge_index)
+        v = torch.FloatTensor(torch.ones([data.num_edges]))
+        A_sp = torch.sparse.FloatTensor(i, v, torch.Size([data.num_nodes, data.num_nodes]))
+        A = A_sp.to_dense()
+        A_nomal = row_normalize(A)
+        I = torch.eye(A.shape[1]).to(A.device)
+        A_I = A + I
+        A_I_nomal = row_normalize(A_I)
+        label = data.y
 
-        idx_train = data.train_mask#.ravel()
-        idx_val = data.val_mask#.ravel()
-        idx_test = data.test_mask#.ravel()
-        idx_test[:] = False
-        idx_test[range(500, 1500)]=True
     else:
-        idx_train = data.train_mask#.ravel()
-        idx_val = data.val_mask#.ravel()
-        idx_test = data.test_mask#.ravel()
+        path = osp.join(osp.dirname(osp.realpath(__file__)), 'data/')
+        dataset = PygNodePropPredDataset(name=args.dataset, root=path)
+        #split_idx = dataset.get_idx_split()
+        if args.dataset in ['ogbn-arxiv', 'ogbn-proteins']:
+            data = dataset[0]
+            data.edge_index = to_undirected(data.edge_index, data.num_nodes)
+        elif args.dataset in ['ogbn-mag', 'ogbn-products']:
+            if args.dataset in ['ogbn-mag']:
+                rel_data = dataset[0]
+                # We are only interested in paper <-> paper relations.
+                data = Data(
+                    x=rel_data.x_dict['paper'],
+                    edge_index=rel_data.edge_index_dict[('paper', 'cites', 'paper')],
+                    y=rel_data.y_dict['paper'])
+                data.edge_index = to_undirected(data.edge_index, data.num_nodes)
+            else:
+                rel_data = dataset[0]
+                data = Data(
+                    x=rel_data.x,
+                    edge_index=rel_data.edge_index,
+                    y=rel_data.y)
+        A = coo_matrix(
+            (np.ones(data.num_edges), (data.edge_index[0].numpy(), data.edge_index[1].numpy())),
+            shape=(data.num_nodes, data.num_nodes))
+        nb_nodes = data.num_nodes
+        I = coo_matrix((np.ones(nb_nodes), (np.arange(0, nb_nodes, 1), np.arange(0, nb_nodes, 1))),
+                       shape=(nb_nodes, nb_nodes))
+        A_nomal = row_normalize_sparse(A)
+        A_I = A + I  # coo_matrix(sp.eye(adj.shape[0]))
+        A_I_nomal = row_normalize_sparse(A_I)
+        label = data.y
+        A_I_nomal = sparse_mx_to_torch_sparse_tensor(A_I_nomal)
+        A_nomal = sparse_mx_to_torch_sparse_tensor(A_nomal)
+        A = sparse_mx_to_torch_sparse_tensor(A)
 
+        random_split = torch.randperm(nb_nodes)
+        train_num = int(nb_nodes*train_ratio)
+        val_num = int(nb_nodes*val_ratio)
+        idx_train = random_split[:train_num]
+        idx_val = random_split[train_num:train_num+val_num]
+        idx_test = random_split[train_num+val_num:]
 
-    i = torch.Tensor.long(data.edge_index)
-    v = torch.FloatTensor(torch.ones([data.num_edges]))
-    A_sp = torch.sparse.FloatTensor(i, v, torch.Size([data.num_nodes, data.num_nodes]))
-    A = A_sp.to_dense()
-    A_nomal = row_normalize(A)
-    I = torch.eye(A.shape[1]).to(A.device)
-    A_I = A + I
-    A_I_nomal = row_normalize(A_I)
-    label = data.y
-
-
-    return [A_I_nomal, A_nomal], data.x, label, idx_train, idx_val, idx_test
+    return [A_I_nomal, A_nomal,A], data.x, label, idx_train, idx_val, idx_test
 
 
 def load_acm_mat(sc=3):
@@ -204,6 +252,16 @@ def load_freebase(sc=None):
     test = [torch.LongTensor(i) for i in test]
     return  adj_list, feat_m, label, train[0], val[0], test[0]
 
+def compute_ppr(adj:Tensor, alpha=0.2, self_loop=True)->Tensor: ### PPR (personalized PageRank)：
+    adj = adj.numpy()
+    if self_loop:
+        adj = adj + np.eye(adj.shape[0])                                # A^ = A + I_n
+    d = np.diag(np.sum(adj, 1))                                     # D^ = Sigma A^_ii
+    dinv = fractional_matrix_power(d, -0.5)                       # D^(-1/2)
+    at = np.matmul(np.matmul(dinv, adj), dinv)                      # A~ = D^(-1/2) x A^ x D^(-1/2)
+    return torch.tensor(alpha * inv((np.eye(adj.shape[0]) - (1 - alpha) * at)),dtype=torch.float32)   # a(I_n-(1-a)A~)^-1
+
+
 def encode_onehot(labels):
     labels = labels.reshape(-1, 1)
     enc = OneHotEncoder()
@@ -225,11 +283,21 @@ def preprocess_features(features):
         return features
 
 def row_normalize(A):
-    """Row-normalize sparse matrix"""
+    """Row-normalize dense matrix"""
     rowsum = A.sum(dim=-1).clamp(min=0.)
     r_inv = rowsum.pow(-1)
     A = r_inv.unsqueeze(-1) * A
     return A
+
+
+def row_normalize_sparse(mx):
+    """Row-normalize sparse matrix"""
+    rowsum = np.array(mx.sum(1))
+    r_inv = np.power(rowsum, -1).flatten()
+    r_inv[np.isinf(r_inv)] = 0.
+    r_mat_inv = diags(r_inv)
+    mx = r_mat_inv.dot(mx)
+    return mx
 
 def normalize_adj(adj):
     """Symmetrically normalize adjacency matrix."""
@@ -261,7 +329,10 @@ def sparse_mx_to_torch_sparse_tensor(sparse_mx):
 
 def torch2dgl(graph):
     N = graph.shape[0]
-    graph_sp = graph.to_sparse()
+    if graph.is_sparse:
+        graph_sp = graph.coalesce()
+    else:
+        graph_sp = graph.to_sparse()
     edges_src = graph_sp.indices()[0]
     edges_dst = graph_sp.indices()[1]
     edges_features = graph_sp.values()
