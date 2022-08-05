@@ -284,7 +284,8 @@ def preprocess_features(features):
 
 def row_normalize(A):
     """Row-normalize dense matrix"""
-    rowsum = A.sum(dim=-1).clamp(min=0.)
+    eps = 2.2204e-16
+    rowsum = A.sum(dim=-1).clamp(min=0.) + eps 
     r_inv = rowsum.pow(-1)
     A = r_inv.unsqueeze(-1) * A
     return A
