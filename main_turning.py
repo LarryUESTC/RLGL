@@ -12,6 +12,7 @@ import socket, os
 import gc
 import copy
 TUNE = False
+
 def main_one(config, checkpoint_dir = None):
 
     ################STA|SQL|###############
@@ -61,7 +62,7 @@ def main_one(config, checkpoint_dir = None):
     # else:
     #     args.device = torch.device("cuda:" + str(args.gpu_num) if torch.cuda.is_available() else "cpu")
 
-    current_args.device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
+    current_args.device = torch.device('cuda:7' if torch.cuda.is_available() else 'cpu')
     ACC_seed = []
     Time_seed = []
     for seed in range(2020,2024):
@@ -132,13 +133,13 @@ def main(args):
         # search_alg.save('checkpoint_alg')
     else:
         config = {
-            'nb_epochs': 1000,
-            'lr': 0.01,
-            'wd': 0.0005,
+            'nb_epochs': 2000,
+            'lr': 0.001,
+            'wd': 0.0000,
             'test_epo': 50,
             'test_lr': 0.01,
-            'cfg': [16],
-            'random_aug_feature': 0.1,
+            'cfg': [64,32,16],
+            'random_aug_feature': 0.2,
             'random_aug_edge': 0.0,
             'alpha': 1,
             'beta': 0.1,
@@ -149,7 +150,7 @@ def main(args):
 
 if __name__ == '__main__':
     task = 'Semi'    # choice:Semi Unsup Sup Rein Noise
-    method = 'Gcn'  # choice: Gcn
+    method = 'GcnMixup'  # choice: Gcn
     dataset = 'Cora' # choice:Cora CiteSeer PubMed
     args = parse_args(task, method, dataset)
     torch.backends.cudnn.deterministic = True

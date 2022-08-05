@@ -39,6 +39,23 @@ class Semi_Gcn(Semi):
         self.args.__setattr__('method', 'SEMI_GCN')
         self.args.__setattr__('lr', 0.05)
 
+class Semi_GcnMixup(Semi):
+    def __init__(self, method, dataset):
+        super(Semi_GcnMixup, self).__init__(method, dataset)
+        ################STA|add new params here|###############
+        # self.parser.add_argument('--random_aug_edge', type=float, default=0.2, help='RA graph')
+        ################END|add new params here|###############
+        self.args, _ = self.parser.parse_known_args()
+
+        ################STA|replace params here|###############
+        self.replace()
+        ################END|replace params here|###############
+
+    def replace(self):
+        super(Semi_GcnMixup, self).replace()
+        self.args.__setattr__('method', 'SEMI_GCNMIXUP')
+        self.args.__setattr__('lr', 0.05)
+
 class Semi_Gcn_Cora(Semi_Gcn):
     def __init__(self, method, dataset):
         super(Semi_Gcn, self).__init__(method, dataset)
