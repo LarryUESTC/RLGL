@@ -57,12 +57,12 @@ def main_one(config, checkpoint_dir = None):
         print("Change TABLE_NAME to create a new table")
     ################END|SQL|###############
 
-    # if args.gpu_num == -1:
-    #     args.device = 'cpu'
-    # else:
-    #     args.device = torch.device("cuda:" + str(args.gpu_num) if torch.cuda.is_available() else "cpu")
+    if args.gpu_num == -1:
+        args.device = 'cpu'
+    else:
+        args.device = torch.device("cuda:" + str(args.gpu_num) if torch.cuda.is_available() else "cpu")
 
-    current_args.device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
+    # current_args.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     ACC_seed = []
     Time_seed = []
     for seed in range(2020,2024):

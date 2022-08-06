@@ -1,4 +1,3 @@
-from readline import append_history_file
 import time
 from utils import process
 from models.embedder import embedder_single
