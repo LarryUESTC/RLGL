@@ -5,3 +5,4 @@ run.py
 /.idea/
 /__pycache__/
 __pycache__/evaluate.cpython-39.pyc
+*.pyc

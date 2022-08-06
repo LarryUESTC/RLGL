@@ -62,7 +62,7 @@ def main_one(config, checkpoint_dir = None):
     # else:
     #     args.device = torch.device("cuda:" + str(args.gpu_num) if torch.cuda.is_available() else "cpu")
 
-    current_args.device = torch.device('cuda:7' if torch.cuda.is_available() else 'cpu')
+    current_args.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     ACC_seed = []
     Time_seed = []
     for seed in range(2020,2024):
@@ -149,8 +149,8 @@ def main(args):
     ################END|set tune param|###############
 
 if __name__ == '__main__':
-    task = 'Semi'    # choice:Semi Unsup Sup Rein Noise
-    method = 'GcnMixup'  # choice: Gcn
+    task = 'Sup'    # choice:Semi Unsup Sup Rein Noise
+    method = 'Gcn'  # choice: Gcn
     dataset = 'Cora' # choice:Cora CiteSeer PubMed
     args = parse_args(task, method, dataset)
     torch.backends.cudnn.deterministic = True

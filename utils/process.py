@@ -13,6 +13,7 @@ from torch_geometric.utils import to_undirected
 import os.path as osp
 from torch_geometric.datasets import Planetoid, Amazon
 import dgl
+from sklearn.model_selection import StratifiedShuffleSplit
 
 def load_single_graph(args=None,train_ratio=0.1,val_ratio=0.1):
     if args.dataset in ['Cora', 'CiteSeer', 'PubMed','Photo', 'Computers']:
@@ -375,3 +376,41 @@ def RA(graph, x, feat_drop_rate, edge_mask_rate):
     ng.add_edges(nsrc, ndst)
 
     return ng, feat
+
+def separate_adj(org_adj, idx_train, idx_test, idx_val):
+    train_adj = torch.clone(org_adj)
+    test_adj = torch.clone(org_adj)
+    val_adj = torch.clone(org_adj)
+
+    train_adj[:, idx_test] = 0
+    train_adj[:, idx_val] = 0
+    train_adj[idx_test, :] = 0
+    train_adj[idx_val, :] = 0
+
+    test_adj[:, idx_train] = 0
+    test_adj[:, idx_val] = 0
+    test_adj[idx_train, :] = 0
+    test_adj[idx_val, :] = 0
+
+    val_adj[:, idx_train] = 0
+    val_adj[:, idx_test] = 0
+    val_adj[idx_train, :] = 0
+    val_adj[idx_test, :] = 0
+
+    I = torch.eye(org_adj.shape[1]).to(org_adj.device)
+
+    train_adj_normal = row_normalize(train_adj + I)
+    test_adj_normal = row_normalize(test_adj + I)
+    val_adj_normal = row_normalize(val_adj + I)
+
+    return train_adj_normal, test_adj_normal, val_adj_normal
+
+def n_fold_split(n, label, feature, train_rate):
+    kf = StratifiedShuffleSplit(n_splits=n, train_size=train_rate)
+    train_list = []
+    test_list = []
+    for train_index, test_index in kf.split(feature.cpu().numpy(), label.cpu().numpy()):
+        train_list.append(list(train_index))
+        test_list.append(list(test_index))
+
+    return train_list, test_list, test_list
