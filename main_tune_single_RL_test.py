@@ -3,6 +3,7 @@ import random as random
 import torch
 from params import parse_args
 import models
+
 from ray import tune
 import ray
 from ray.tune.integration.torch import DistributedTrainableCreator
@@ -12,7 +13,6 @@ import socket, os
 import gc
 import copy
 TUNE = False
-
 def main_one(config, checkpoint_dir = None):
 
     ################STA|SQL|###############
@@ -57,12 +57,7 @@ def main_one(config, checkpoint_dir = None):
         print("Change TABLE_NAME to create a new table")
     ################END|SQL|###############
 
-    # if args.gpu_num == -1:
-    #     args.device = 'cpu'
-    # else:
-    #     args.device = torch.device("cuda:" + str(args.gpu_num) if torch.cuda.is_available() else "cpu")
-
-    current_args.device = torch.device('cuda:7' if torch.cuda.is_available() else 'cpu')
+    current_args.device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
     ACC_seed = []
     Time_seed = []
     for seed in range(2020,2024):
@@ -133,13 +128,13 @@ def main(args):
         # search_alg.save('checkpoint_alg')
     else:
         config = {
-            'nb_epochs': 2000,
-            'lr': 0.001,
-            'wd': 0.0000,
+            'nb_epochs': 1000,
+            'lr': 0.01,
+            'wd': 0.0005,
             'test_epo': 50,
             'test_lr': 0.01,
-            'cfg': [64,32,16],
-            'random_aug_feature': 0.2,
+            'cfg': [16],
+            'random_aug_feature': 0.1,
             'random_aug_edge': 0.0,
             'alpha': 1,
             'beta': 0.1,
@@ -149,13 +144,8 @@ def main(args):
     ################END|set tune param|###############
 
 if __name__ == '__main__':
-<<<<<<< HEAD:main_tune_single.py
-    task = 'Sup'    # choice:Semi Unsup Sup Rein Noise
-    method = 'Gcn'  # choice: Gcn
-=======
-    task = 'Semi'    # choice:Semi Unsup Sup Rein Noise
-    method = 'GcnMixup'  # choice: Gcn
->>>>>>> a66de8dd2b730a46b3d3fda73beb2e07ea6a8047:main_turning.py
+    task = 'Rein'    # choice:Semi Unsup Sup Rein Noise
+    method = 'Rlg'  # choice: Gcn RLG
     dataset = 'Cora' # choice:Cora CiteSeer PubMed
     args = parse_args(task, method, dataset)
     torch.backends.cudnn.deterministic = True

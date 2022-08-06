@@ -48,7 +48,11 @@ class embedder:
 class embedder_single:
     def __init__(self, args):
         # args.gpu_num_ = args.gpu_num
-
+        # if args.gpu_num_ == -1:
+        #     args.device = 'cpu'
+        # else:
+        #     args.device = torch.device("cuda:" + str(args.gpu_num_) if torch.cuda.is_available() else "cpu")
+        args.device = torch.device("cuda:1" if torch.cuda.is_available() else "cpu")
         cprint("## Loading Dataset ##", "yellow")
 
         adj_list, features, labels, idx_train, idx_val, idx_test = process.load_single_graph(args)
