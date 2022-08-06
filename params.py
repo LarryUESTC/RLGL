@@ -39,6 +39,23 @@ class Semi_Gcn(Semi):
         self.args.__setattr__('method', 'SEMI_GCN')
         self.args.__setattr__('lr', 0.05)
 
+class Semi_GcnMixup(Semi):
+    def __init__(self, method, dataset):
+        super(Semi_GcnMixup, self).__init__(method, dataset)
+        ################STA|add new params here|###############
+        # self.parser.add_argument('--random_aug_edge', type=float, default=0.2, help='RA graph')
+        ################END|add new params here|###############
+        self.args, _ = self.parser.parse_known_args()
+
+        ################STA|replace params here|###############
+        self.replace()
+        ################END|replace params here|###############
+
+    def replace(self):
+        super(Semi_GcnMixup, self).replace()
+        self.args.__setattr__('method', 'SEMI_GCNMIXUP')
+        self.args.__setattr__('lr', 0.05)
+
 class Semi_Gcn_Cora(Semi_Gcn):
     def __init__(self, method, dataset):
         super(Semi_Gcn, self).__init__(method, dataset)
@@ -51,64 +68,6 @@ class Semi_Gcn_Cora(Semi_Gcn):
         self.args.__setattr__('lr', 0.01)
 
 ################END|Semi-supervised Task|###############
-
-
-
-
-
-################STA|supervised Task|###############
-
-class Sup(object):
-    def __init__(self, method, dataset):
-        self.parser = argparse.ArgumentParser()
-        self.parser.add_argument('--dataset', nargs='?', default=dataset)
-        self.parser.add_argument('--method', nargs='?', default=method)
-        self.parser.add_argument('--task', type=str, default='sup')
-        self.parser.add_argument('--lr', type=float, default=0.0005, help='learning rate')
-        self.parser.add_argument('--patience', type=int, default=40, help='patience for early stopping')
-        self.parser.add_argument('--seed', type=int, default=0, help='the seed to use')
-        self.parser.add_argument('--save_root', type=str, default="./saved_model", help='root for saving the model')
-        self.parser.add_argument('--random_aug_feature', type=float, default=0.2, help='RA feature')
-        self.parser.add_argument('--random_aug_edge', type=float, default=0.2, help='RA graph')
-
-        self.parser.add_argument('--train_rate', type=float, default=0.8, help='rate of training set')
-        self.parser.add_argument('--validate_rate', type=float, default=0.1, help='rate of validation set')
-        self.parser.add_argument('--test_rate', type=float, default=0.1, help='rate of testing set')
-
-        self.args, _ = self.parser.parse_known_args()
-
-    def replace(self):
-        pass
-
-    def get_parse(self):
-        return self.args
-
-class Sup_Gcn(Sup):
-    def __init__(self, method, dataset):
-        super(Sup_Gcn, self).__init__(method, dataset)
-        
-        self.args, _ = self.parser.parse_known_args()
-
-        self.replace()
-
-    def replace(self):
-        super(Sup_Gcn, self).replace()
-        self.args.__setattr__('method', 'SUP_GCN')
-        self.args.__setattr__('lr', 0.05)
-
-class Sup_Gcn_Cora(Sup_Gcn):
-    def __init__(self, method, dataset):
-        super(Sup_Gcn, self).__init__(method, dataset)
-        self.args, _ = self.parser.parse_known_args()
-        self.replace()
-
-    def replace(self):
-        super(Sup_Gcn_Cora, self).replace()
-        self.args.__setattr__('dataset', 'Cora')
-        self.args.__setattr__('lr', 0.01)
-
-################END|supervised Task|###############
-
 
 
 
@@ -404,7 +363,28 @@ class Unsup_Dgi(Unsup):
         super(Unsup_Dgi, self).replace()
         self.args.__setattr__('method', 'Dgi')
 
+class Unsup_Mvgrl(Unsup):
+    def __init__(self, method, dataset):
+        super(Unsup_Mvgrl,self).__init__(method, dataset)
 
+        self.parser.add_argument('--wd', type=float, default=0.0, help='weight decay in adam')
+        self.parser.add_argument('--hid_dim', type=int, default=512, help='hidden dimension')
+        self.parser.add_argument('--activation', type=str, default='prelu', help='activation function after gcn')
+        self.parser.add_argument('--sample_size', type=int, default=2000, help='number of negative samples')
+
+        self.args, _ = self.parser.parse_known_args()
+
+        self.args.__setattr__('patience', 20)
+        self.args.__setattr__('nb_epochs', 2000)
+        self.args.__setattr__('dataset', dataset)
+        self.args.__setattr__('lr', 0.001)
+        self.args.__setattr__('test_epo', 300)
+        self.args.__setattr__('test_lr', 0.01)
+        self.replace()
+
+    def replace(self):
+        super(Unsup_Mvgrl, self).replace()
+        self.args.__setattr__('method', 'Mvgrl')
 
 ################END|unsupervised Task |###############
 
@@ -435,9 +415,6 @@ params_key = {
 'Semi': Semi,
 'Semi_Gcn': Semi_Gcn,
 'Semi_Gcn_Cora': Semi_Gcn_Cora,
-'Sup': Sup,
-'Sup_Gcn': Sup_Gcn,
-'Sup_Gcn_Cora': Sup_Gcn_Cora,
 'Unsup': Unsup,
 'Unsup_E2sgrl': Unsup_E2sgrl,
 'Unsup_E2sgrl_Acm': Unsup_E2sgrl_Acm,
@@ -449,8 +426,9 @@ params_key = {
 'Unsup_Sugrl_CiteSeer':Unsup_Sugrl_CiteSeer,
 'Unsup_Sugrl_PubMed':Unsup_Sugrl_PubMed,
 'Unsup_Sugrl_Photo':Unsup_Sugrl_Photo,
-'Unsup_Dgi':Unsup_Dgi,
 'Unsup_Sugrl_Computers':Unsup_Sugrl_Computers,
+'Unsup_Dgi':Unsup_Dgi,
+'Unsup_Mvgrl':Unsup_Mvgrl,
 'Rein': Rein,
 }
 

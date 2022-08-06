@@ -10,6 +10,7 @@ import torch
 import torch.nn as nn
 
 
+
 class GCN(embedder_single):
     def __init__(self, args):
         embedder_single.__init__(self, args)

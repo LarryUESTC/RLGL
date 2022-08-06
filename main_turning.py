@@ -149,13 +149,8 @@ def main(args):
     ################END|set tune param|###############
 
 if __name__ == '__main__':
-<<<<<<< HEAD:main_tune_single.py
-    task = 'Sup'    # choice:Semi Unsup Sup Rein Noise
-    method = 'Gcn'  # choice: Gcn
-=======
     task = 'Semi'    # choice:Semi Unsup Sup Rein Noise
     method = 'GcnMixup'  # choice: Gcn
->>>>>>> a66de8dd2b730a46b3d3fda73beb2e07ea6a8047:main_turning.py
     dataset = 'Cora' # choice:Cora CiteSeer PubMed
     args = parse_args(task, method, dataset)
     torch.backends.cudnn.deterministic = True
