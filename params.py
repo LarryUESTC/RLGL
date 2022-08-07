@@ -14,6 +14,7 @@ class Semi(object):
         self.parser.add_argument('--save_root', type=str, default="./saved_model", help='root for saving the model')
         self.parser.add_argument('--random_aug_feature', type=float, default=0.2, help='RA feature')
         self.parser.add_argument('--random_aug_edge', type=float, default=0.2, help='RA graph')
+        self.parser.add_argument('--gpu_num', type=int, default=0, help='the id of gpu to use')
         self.args, _ = self.parser.parse_known_args()
 
     def replace(self):
