@@ -1,6 +1,9 @@
 from models.Self.E2_SGRL import E2_SGRL
 from models.Rein.RLGRL import RLGL
 from models.Self.SGRL import SGRL
+from models.Self.SUGRL import SUGRL
+from models.Self.GMI import GMI
+from models.Self.MVGRL import MVGRL
 from models.NodeClas.Semi_GCN import GCN as Semi_GCN
 from models.NodeClas.Semi_GCNMIXUP import GCNMIXUP
 from models.Rein.RLG import RLG
@@ -15,6 +18,9 @@ method_dict = {
 'RLGL':RLGL,
 'SGRL':SGRL,
 'RLG':RLG,
+'SUGRL':SUGRL,
+'GMI':GMI,
+'GMI':MVGRL,
 }
 
 def getmodel(name):
