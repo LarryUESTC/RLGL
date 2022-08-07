@@ -7,3 +7,4 @@ run.py
 /__pycache__/
 __pycache__/evaluate.cpython-39.pyc
 *.pyc
+utils/data/cifar-10-batches-py

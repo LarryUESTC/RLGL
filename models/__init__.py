@@ -8,7 +8,7 @@ from models.NodeClas.Semi_GCN import GCN as Semi_GCN
 from models.NodeClas.Semi_GCNMIXUP import GCNMIXUP
 from models.Rein.RLG import RLG
 from models.NodeClas.Sup_GCN import Sup_GCN
-
+from models.VisionGraph.PyramidViG import PyramidViG as IMGCLS_VIG
 
 method_dict = {
 'E2_SGRL':E2_SGRL,
@@ -21,7 +21,9 @@ method_dict = {
 'SUGRL':SUGRL,
 'GMI':GMI,
 'MVGRL':MVGRL,
+'IMGCLS_VIG':IMGCLS_VIG
 }
+
 
 def getmodel(name):
     return method_dict[name.upper()]

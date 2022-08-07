@@ -3,14 +3,15 @@ import random as random
 import torch
 from params import parse_args
 import models
-from utils.sql_writer import WriteToDatabase, get_primary_key_and_value, get_columns, merge_args_and_dict, merge_args_and_config
+from utils.sql_writer import WriteToDatabase, get_primary_key_and_value, get_columns, merge_args_and_dict, \
+    merge_args_and_config
 from statistics import mean
 import socket, os
 import gc
 import copy
 
-def main_one(config, checkpoint_dir = None):
 
+def main_one(config, checkpoint_dir=None):
     ################STA|SQL|###############
     current_args = copy.deepcopy(args)
     current_args = merge_args_and_config(current_args, config)
@@ -18,8 +19,9 @@ def main_one(config, checkpoint_dir = None):
     db_input_dir = {"name": ["text", host_name + os.path.split(__file__)[-1][:-3]],
                     "epoch": ["integer", None],
                     "stop_epoch": ["integer", None],
-                    "seed": ["integer", None],}  #Larry: set key
-    PRIMARY_KEY, PRIMARY_VALUE = get_primary_key_and_value(merge_args_and_dict(copy.deepcopy(db_input_dir), vars(current_args)))
+                    "seed": ["integer", None], }  # Larry: set key
+    PRIMARY_KEY, PRIMARY_VALUE = get_primary_key_and_value(
+        merge_args_and_dict(copy.deepcopy(db_input_dir), vars(current_args)))
     REFRESH = False
     OVERWRITE = True
 
@@ -56,7 +58,7 @@ def main_one(config, checkpoint_dir = None):
     current_args.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     ACC_seed = []
     Time_seed = []
-    for seed in range(2020,2024):
+    for seed in range(2020, 2024):
 
         np.random.seed(seed)
         torch.manual_seed(seed)
@@ -70,8 +72,8 @@ def main_one(config, checkpoint_dir = None):
 
         ################STA|write one|###############
         try:
-            writer_matric_seed = {'epoch': -1, "seed": seed,"test_time": training_time,"stop_epoch": stop_epoch,}
-            writer.write(writer_matric_seed,{"test_acc": test_acc,})
+            writer_matric_seed = {'epoch': -1, "seed": seed, "test_time": training_time, "stop_epoch": stop_epoch, }
+            writer.write(writer_matric_seed, {"test_acc": test_acc, })
         except:
             print("DataBase is not available, it's fine")
         ################END|write one|###############
@@ -83,8 +85,8 @@ def main_one(config, checkpoint_dir = None):
 
     ################STA|write seed|###############
     try:
-        writer_matric_seed = {'epoch': -2, "seed": -2,"test_time": mean(Time_seed), "stop_epoch": -2}
-        writer.write(writer_matric_seed,{ "test_acc": mean(ACC_seed),})
+        writer_matric_seed = {'epoch': -2, "seed": -2, "test_time": mean(Time_seed), "stop_epoch": -2}
+        writer.write(writer_matric_seed, {"test_acc": mean(ACC_seed), })
     except:
         print("DataBase is not available, it's fine")
     ################END|write seed|###############
@@ -94,12 +96,13 @@ def main(args):
     # param set
     ################STA|set tune param|###############
     config = {
-        'nb_epochs': 1000,
-        'lr': 0.01,
-        'wd': 0.0005,
+        'nb_epochs': 300,
+        'lr': 0.05,
+        'wd': 2e-5,
         'test_epo': 50,
         'test_lr': 0.01,
-        'cfg': [16],
+        'cfg': [48, 96],
+        'blocks': [2, 2],  # 新增的參數
         'random_aug_feature': 0.1,
         'random_aug_edge': 0.0,
         'alpha': 1,
@@ -109,10 +112,11 @@ def main(args):
     main_one(config)
     ################END|set tune param|###############
 
+
 if __name__ == '__main__':
-    task = 'Semi'    # choice:Semi Unsup Sup Rein Noise
-    method = 'Gcn'  # choice: Gcn
-    dataset = 'Cora' # choice:Cora CiteSeer PubMed
+    task = 'ImgCls'  # choice:Semi Unsup Sup Rein Noise ImgCls
+    method = 'ViG'  # choice: Gcn ViG
+    dataset = 'CIFAR10'  # choice:Cora CiteSeer PubMed CIFAR10
     args = parse_args(task, method, dataset)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False

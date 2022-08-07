@@ -4,7 +4,8 @@ import pickle as pkl
 import scipy.io as sio
 import scipy.sparse as sp
 from torch import Tensor
-from scipy.sparse import coo_matrix,diags,csr_matrix
+from torch.utils.data import DataLoader, sampler
+from scipy.sparse import coo_matrix, diags, csr_matrix
 from sklearn.preprocessing import OneHotEncoder
 from torch_geometric.data import Data
 from scipy.linalg import fractional_matrix_power, inv
@@ -12,11 +13,42 @@ from ogb.nodeproppred import PygNodePropPredDataset
 from torch_geometric.utils import to_undirected
 import os.path as osp
 from torch_geometric.datasets import Planetoid, Amazon
+from torchvision.datasets import CIFAR10
 import dgl
 from sklearn.model_selection import StratifiedShuffleSplit
 
-def load_single_graph(args=None,train_ratio=0.1,val_ratio=0.1):
-    if args.dataset in ['Cora', 'CiteSeer', 'PubMed','Photo', 'Computers']:
+
+def load_image_dataset(args=None):
+    train_dl = val_dl = test_dl = None
+    if args.dataset in ['CIFAR10']:
+        class ChunkSampler(sampler.Sampler):
+            def __init__(self, num_samples, start=0):
+                self.num_samples = num_samples
+                self.start = start
+
+            def __iter__(self):
+                return iter(range(self.start, self.start + self.num_samples))
+
+            def __len__(self):
+                return self.num_samples
+
+        NUM_TRAIN = 50000
+        NUM_VAL = 0
+        train = CIFAR10('./utils/data', train=True, download=True, transform=args.transform['train'])
+        test = CIFAR10('./utils/data', train=False, download=True, transform=args.transform['test'])
+
+        train_dl = DataLoader(train, batch_size=args.batch_size, num_workers=args.workers,
+                              sampler=ChunkSampler(NUM_TRAIN))
+        val_dl = DataLoader(train, batch_size=args.batch_size, num_workers=args.workers,
+                            sampler=ChunkSampler(NUM_VAL, start=NUM_TRAIN))
+        test_dl = DataLoader(test, batch_size=args.batch_size, num_workers=args.workers)
+    else:
+        print(f"Do not find {args.dataset} dataset!")
+    return train_dl, val_dl, test_dl
+
+
+def load_single_graph(args=None, train_ratio=0.1, val_ratio=0.1):
+    if args.dataset in ['Cora', 'CiteSeer', 'PubMed', 'Photo', 'Computers']:
         if args.dataset in ['Cora', 'CiteSeer', 'PubMed']:
             path = osp.join(osp.dirname(osp.realpath(__file__)), 'data/')
             dataset = Planetoid(path, args.dataset)
@@ -31,7 +63,7 @@ def load_single_graph(args=None,train_ratio=0.1,val_ratio=0.1):
             idx_val[range(200, 500)] = True
             idx_test = data.test_mask
             idx_test[:] = False
-            idx_test[range(500, 1500)]=True
+            idx_test[range(500, 1500)] = True
         else:
             idx_train = data.train_mask
             idx_val = data.val_mask
@@ -50,7 +82,7 @@ def load_single_graph(args=None,train_ratio=0.1,val_ratio=0.1):
     else:
         path = osp.join(osp.dirname(osp.realpath(__file__)), 'data/')
         dataset = PygNodePropPredDataset(name=args.dataset, root=path)
-        #split_idx = dataset.get_idx_split()
+        # split_idx = dataset.get_idx_split()
         if args.dataset in ['ogbn-arxiv', 'ogbn-proteins']:
             data = dataset[0]
             data.edge_index = to_undirected(data.edge_index, data.num_nodes)
@@ -84,13 +116,13 @@ def load_single_graph(args=None,train_ratio=0.1,val_ratio=0.1):
         A = sparse_mx_to_torch_sparse_tensor(A)
 
         random_split = torch.randperm(nb_nodes)
-        train_num = int(nb_nodes*train_ratio)
-        val_num = int(nb_nodes*val_ratio)
+        train_num = int(nb_nodes * train_ratio)
+        val_num = int(nb_nodes * val_ratio)
         idx_train = random_split[:train_num]
-        idx_val = random_split[train_num:train_num+val_num]
-        idx_test = random_split[train_num+val_num:]
+        idx_val = random_split[train_num:train_num + val_num]
+        idx_test = random_split[train_num + val_num:]
 
-    return [A_I_nomal, A_nomal,A], data.x, label, idx_train, idx_val, idx_test
+    return [A_I_nomal, A_nomal, A], data.x, label, idx_train, idx_val, idx_test
 
 
 def load_acm_mat(sc=3):
@@ -104,8 +136,8 @@ def load_acm_mat(sc=3):
     adj_fusion[adj_fusion < 2] = 0
     adj_fusion[adj_fusion == 2] = 1
 
-    adj1 = data["PLP"] + np.eye(data["PLP"].shape[0])*sc
-    adj2 = data["PAP"] + np.eye(data["PAP"].shape[0])*sc
+    adj1 = data["PLP"] + np.eye(data["PLP"].shape[0]) * sc
+    adj2 = data["PAP"] + np.eye(data["PAP"].shape[0]) * sc
     adj_fusion = adj_fusion + np.eye(adj_fusion.shape[0]) * 3
 
     adj1 = sp.csr_matrix(adj1)
@@ -136,12 +168,10 @@ def load_dblp(sc=3):
     adj_fusion[adj_fusion < 3] = 0
     adj_fusion[adj_fusion == 3] = 1
 
-    adj1 = data["PAP"] + np.eye(data["PAP"].shape[0])*sc
-    adj2 = data["PPrefP"] + np.eye(data["PPrefP"].shape[0])*sc
-    adj3 = data["PATAP"] + np.eye(data["PATAP"].shape[0])*sc
+    adj1 = data["PAP"] + np.eye(data["PAP"].shape[0]) * sc
+    adj2 = data["PPrefP"] + np.eye(data["PPrefP"].shape[0]) * sc
+    adj3 = data["PATAP"] + np.eye(data["PATAP"].shape[0]) * sc
     adj_fusion = adj_fusion + np.eye(adj_fusion.shape[0]) * 3
-
-
 
     adj1 = sp.csr_matrix(adj1)
     adj2 = sp.csr_matrix(adj2)
@@ -163,7 +193,7 @@ def load_dblp(sc=3):
 def load_imdb(sc=3):
     data = pkl.load(open("data/imdb.pkl", "rb"))
     label = data['label']
-###########################################################
+    ###########################################################
     adj_edge1 = data["MDM"]
     adj_edge2 = data["MAM"]
     adj_fusion1 = adj_edge1 + adj_edge2
@@ -171,14 +201,13 @@ def load_imdb(sc=3):
     adj_fusion[adj_fusion < 2] = 0
     adj_fusion[adj_fusion == 2] = 1
     ############################################################
-    adj1 = data["MDM"] + np.eye(data["MDM"].shape[0])*sc
-    adj2 = data["MAM"] + np.eye(data["MAM"].shape[0])*sc
-    adj_fusion = adj_fusion  + np.eye(adj_fusion.shape[0])*3
+    adj1 = data["MDM"] + np.eye(data["MDM"].shape[0]) * sc
+    adj2 = data["MAM"] + np.eye(data["MAM"].shape[0]) * sc
+    adj_fusion = adj_fusion + np.eye(adj_fusion.shape[0]) * 3
 
     adj1 = sp.csr_matrix(adj1)
     adj2 = sp.csr_matrix(adj2)
     adj_fusion = sp.csr_matrix(adj_fusion)
-
 
     adj_list = [adj1, adj2]
 
@@ -190,6 +219,7 @@ def load_imdb(sc=3):
     idx_test = data['test_idx'].ravel()
 
     return adj_list, truefeatures, label, idx_train, idx_val, idx_test, adj_fusion
+
 
 def load_amazon(sc=3):
     data = pkl.load(open("data/amazon.pkl", "rb"))
@@ -203,9 +233,9 @@ def load_amazon(sc=3):
     adj_fusion[adj_fusion < 3] = 0
     adj_fusion[adj_fusion == 3] = 1
 
-    adj1 = data["IVI"] + np.eye(data["IVI"].shape[0])*sc
-    adj2 = data["IBI"] + np.eye(data["IBI"].shape[0])*sc
-    adj3 = data["IOI"] + np.eye(data["IOI"].shape[0])*sc
+    adj1 = data["IVI"] + np.eye(data["IVI"].shape[0]) * sc
+    adj2 = data["IBI"] + np.eye(data["IBI"].shape[0]) * sc
+    adj3 = data["IOI"] + np.eye(data["IOI"].shape[0]) * sc
     adj_fusion = adj_fusion + np.eye(adj_fusion.shape[0]) * 3
 
     adj1 = sp.csr_matrix(adj1)
@@ -251,16 +281,18 @@ def load_freebase(sc=None):
     train = [torch.LongTensor(i) for i in train]
     val = [torch.LongTensor(i) for i in val]
     test = [torch.LongTensor(i) for i in test]
-    return  adj_list, feat_m, label, train[0], val[0], test[0]
+    return adj_list, feat_m, label, train[0], val[0], test[0]
 
-def compute_ppr(adj:Tensor, alpha=0.2, self_loop=True)->Tensor: ### PPR (personalized PageRank)：
+
+def compute_ppr(adj: Tensor, alpha=0.2, self_loop=True) -> Tensor:  ### PPR (personalized PageRank)：
     adj = adj.numpy()
     if self_loop:
-        adj = adj + np.eye(adj.shape[0])                                # A^ = A + I_n
-    d = np.diag(np.sum(adj, 1))                                     # D^ = Sigma A^_ii
-    dinv = fractional_matrix_power(d, -0.5)                       # D^(-1/2)
-    at = np.matmul(np.matmul(dinv, adj), dinv)                      # A~ = D^(-1/2) x A^ x D^(-1/2)
-    return torch.tensor(alpha * inv((np.eye(adj.shape[0]) - (1 - alpha) * at)),dtype=torch.float32)   # a(I_n-(1-a)A~)^-1
+        adj = adj + np.eye(adj.shape[0])  # A^ = A + I_n
+    d = np.diag(np.sum(adj, 1))  # D^ = Sigma A^_ii
+    dinv = fractional_matrix_power(d, -0.5)  # D^(-1/2)
+    at = np.matmul(np.matmul(dinv, adj), dinv)  # A~ = D^(-1/2) x A^ x D^(-1/2)
+    return torch.tensor(alpha * inv((np.eye(adj.shape[0]) - (1 - alpha) * at)),
+                        dtype=torch.float32)  # a(I_n-(1-a)A~)^-1
 
 
 def encode_onehot(labels):
@@ -283,10 +315,11 @@ def preprocess_features(features):
     except:
         return features
 
+
 def row_normalize(A):
     """Row-normalize dense matrix"""
     eps = 2.2204e-16
-    rowsum = A.sum(dim=-1).clamp(min=0.) + eps 
+    rowsum = A.sum(dim=-1).clamp(min=0.) + eps
     r_inv = rowsum.pow(-1)
     A = r_inv.unsqueeze(-1) * A
     return A
@@ -301,6 +334,7 @@ def row_normalize_sparse(mx):
     mx = r_mat_inv.dot(mx)
     return mx
 
+
 def normalize_adj(adj):
     """Symmetrically normalize adjacency matrix."""
     adj = sp.coo_matrix(adj)
@@ -309,6 +343,7 @@ def normalize_adj(adj):
     d_inv_sqrt[np.isinf(d_inv_sqrt)] = 0.
     d_mat_inv_sqrt = sp.diags(d_inv_sqrt)
     return adj.dot(d_mat_inv_sqrt).transpose().dot(d_mat_inv_sqrt).tocoo()
+
 
 def normalize_graph(A):
     eps = 2.2204e-16
@@ -329,6 +364,7 @@ def sparse_mx_to_torch_sparse_tensor(sparse_mx):
     shape = torch.Size(sparse_mx.shape)
     return torch.sparse.FloatTensor(indices, values, shape)
 
+
 def torch2dgl(graph):
     N = graph.shape[0]
     if graph.is_sparse:
@@ -338,9 +374,10 @@ def torch2dgl(graph):
     edges_src = graph_sp.indices()[0]
     edges_dst = graph_sp.indices()[1]
     edges_features = graph_sp.values()
-    graph_dgl = dgl.graph((edges_src,edges_dst), num_nodes = N)
+    graph_dgl = dgl.graph((edges_src, edges_dst), num_nodes=N)
     # graph_dgl.edate['w'] = edges_features
     return graph_dgl
+
 
 def drop_feature(x, drop_prob):
     drop_mask = torch.empty(
@@ -352,6 +389,7 @@ def drop_feature(x, drop_prob):
 
     return x
 
+
 def mask_edge(graph, mask_prob):
     E = graph.number_of_edges()
 
@@ -359,6 +397,7 @@ def mask_edge(graph, mask_prob):
     masks = torch.bernoulli(1 - mask_rates)
     mask_idx = masks.nonzero().squeeze(1)
     return mask_idx
+
 
 def RA(graph, x, feat_drop_rate, edge_mask_rate):
     n_node = graph.number_of_nodes()
@@ -376,6 +415,7 @@ def RA(graph, x, feat_drop_rate, edge_mask_rate):
     ng.add_edges(nsrc, ndst)
 
     return ng, feat
+
 
 def separate_adj(org_adj, idx_train, idx_test, idx_val):
     train_adj = torch.clone(org_adj)
@@ -404,6 +444,7 @@ def separate_adj(org_adj, idx_train, idx_test, idx_val):
     val_adj_normal = row_normalize(val_adj + I)
 
     return train_adj_normal, test_adj_normal, val_adj_normal
+
 
 def n_fold_split(n, label, feature, train_rate):
     kf = StratifiedShuffleSplit(n_splits=n, train_size=train_rate)
