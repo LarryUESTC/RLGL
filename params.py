@@ -401,6 +401,37 @@ class Unsup_Mvgrl(Unsup):
         super(Unsup_Mvgrl, self).replace()
         self.args.__setattr__('method', 'Mvgrl')
 
+<<<<<<< HEAD
+=======
+
+class Unsup_Gmi(Unsup):
+    def __init__(self, method, dataset):
+        super(Unsup_Gmi,self).__init__(method, dataset)
+        self.parser.add_argument('--wd', type=float, default=0.0, help='weight decay in adam')
+        self.parser.add_argument('--hid_dim', type=int, default=256, help='hidden dimension')
+        self.parser.add_argument('--activation', type=str, default='prelu', help='activation function after gcn')
+        self.parser.add_argument('--negative_num', type=int, default=5, help='number of negative samples')
+        self.parser.add_argument('--alpha', type=float, default=0.8,help='parameter for I(h_i; x_i) (default: 0.8)')
+        self.parser.add_argument('--beta', type=float, default=1.0,help='parameter for I(h_i; x_j), node j is a neighbor (default: 1.0)')
+        self.parser.add_argument('--gamma', type=float, default=1.0,help='parameter for I(w_ij; a_ij) (default: 1.0)')
+
+        self.args, _ = self.parser.parse_known_args()
+
+        self.args.__setattr__('patience', 20)
+        self.args.__setattr__('nb_epochs', 2000)
+        self.args.__setattr__('dataset', dataset)
+        self.args.__setattr__('lr', 0.001)
+        self.args.__setattr__('test_epo', 200)
+        self.args.__setattr__('test_lr', 0.01)
+        self.replace()
+
+    def replace(self):
+        super(Unsup_Gmi, self).replace()
+        self.args.__setattr__('method', 'Gmi')
+
+
+################END|unsupervised Task |###############
+>>>>>>> 9d717f71994667e2fa8912358349f3858c7ff630
 
 ################END|unsupervised Task |###############
 
@@ -543,6 +574,7 @@ class ImgCls_ViG_CIFA10(ImgCls_ViG):
 ################END|Vision Graph|###############
 
 params_key = {
+<<<<<<< HEAD
     'Semi': Semi,
     'Semi_Gcn': Semi_Gcn,
     'Semi_Gcn_Cora': Semi_Gcn_Cora,
@@ -567,6 +599,30 @@ params_key = {
     'ImgCls': ImgCls,
     'ImgCls_ViG': ImgCls_ViG,
     'ImgCls_ViG_CIFA10': ImgCls_ViG_CIFA10,
+=======
+'Semi': Semi,
+'Semi_Gcn': Semi_Gcn,
+'Semi_Gcn_Cora': Semi_Gcn_Cora,
+'Unsup': Unsup,
+'Unsup_E2sgrl': Unsup_E2sgrl,
+'Unsup_E2sgrl_Acm': Unsup_E2sgrl_Acm,
+'Unsup_E2sgrl_Dblp': Unsup_E2sgrl_Dblp,
+'Unsup_E2sgrl_Imdb': Unsup_E2sgrl_Imdb,
+'Unsup_E2sgrl_Freebase': Unsup_E2sgrl_Freebase,
+'Unsup_Sugrl':Unsup_Sugrl,
+'Unsup_Sugrl_Cora':Unsup_Sugrl_Cora,
+'Unsup_Sugrl_CiteSeer':Unsup_Sugrl_CiteSeer,
+'Unsup_Sugrl_PubMed':Unsup_Sugrl_PubMed,
+'Unsup_Sugrl_Photo':Unsup_Sugrl_Photo,
+'Unsup_Sugrl_Computers':Unsup_Sugrl_Computers,
+'Unsup_Dgi':Unsup_Dgi,
+'Unsup_Mvgrl':Unsup_Mvgrl,
+'Sup': Sup,
+'Sup_Gcn': Sup_Gcn,
+'Sup_Gcn_Cora': Sup_Gcn_Cora,
+'Unsup_Gmi':Unsup_Gmi,
+'Rein': Rein,
+>>>>>>> 9d717f71994667e2fa8912358349f3858c7ff630
 }
 
 
