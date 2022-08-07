@@ -20,7 +20,7 @@ method_dict = {
 'RLG':RLG,
 'SUGRL':SUGRL,
 'GMI':GMI,
-'GMI':MVGRL,
+'MVGRL':MVGRL,
 }
 
 def getmodel(name):
