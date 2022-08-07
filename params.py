@@ -1,5 +1,6 @@
 import argparse
 
+
 ################STA|Semi-supervised Task|###############
 
 class Semi(object):
@@ -23,6 +24,7 @@ class Semi(object):
     def get_parse(self):
         return self.args
 
+
 class Semi_Gcn(Semi):
     def __init__(self, method, dataset):
         super(Semi_Gcn, self).__init__(method, dataset)
@@ -39,6 +41,7 @@ class Semi_Gcn(Semi):
         super(Semi_Gcn, self).replace()
         self.args.__setattr__('method', 'SEMI_GCN')
         self.args.__setattr__('lr', 0.05)
+
 
 class Semi_GcnMixup(Semi):
     def __init__(self, method, dataset):
@@ -57,6 +60,7 @@ class Semi_GcnMixup(Semi):
         self.args.__setattr__('method', 'SEMI_GCNMIXUP')
         self.args.__setattr__('lr', 0.05)
 
+
 class Semi_Gcn_Cora(Semi_Gcn):
     def __init__(self, method, dataset):
         super(Semi_Gcn, self).__init__(method, dataset)
@@ -68,9 +72,8 @@ class Semi_Gcn_Cora(Semi_Gcn):
         self.args.__setattr__('dataset', 'Cora')
         self.args.__setattr__('lr', 0.01)
 
+
 ################END|Semi-supervised Task|###############
-
-
 
 
 ################STA|unsupervised Task |###############
@@ -102,16 +105,17 @@ class Unsup(object):
     def get_parse(self):
         return self.args
 
+
 class Unsup_E2sgrl(Unsup):
-    def __init__(self,  method, dataset):
-        super(Unsup_E2sgrl,self).__init__(method, dataset)
+    def __init__(self, method, dataset):
+        super(Unsup_E2sgrl, self).__init__(method, dataset)
         self.parser.add_argument('--sc', type=int, default=3, help='')
         self.parser.add_argument('--neg_num', type=int, default=2, help='the number of negtives')
         self.parser.add_argument('--margin1', type=float, default=0.8, help='')
         self.parser.add_argument('--margin2', type=float, default=0.4, help='')
         self.parser.add_argument('--w_s', type=float, default=10, help='weight of loss L_s')
         self.parser.add_argument('--w_c', type=float, default=10, help='weight of loss L_c')
-        #self.parser.add_argument('--w_ms', type=float, default=1, help='weight of loss L_ms')
+        # self.parser.add_argument('--w_ms', type=float, default=1, help='weight of loss L_ms')
         self.parser.add_argument('--w_u', type=float, default=1, help='weight of loss L_u')
 
         self.args, _ = self.parser.parse_known_args()
@@ -121,9 +125,10 @@ class Unsup_E2sgrl(Unsup):
         super(Unsup_E2sgrl, self).replace()
         self.args.__setattr__('method', 'E2sgrl')
 
+
 class Unsup_E2sgrl_Acm(Unsup_E2sgrl):
     def __init__(self, method, dataset):
-        super(Unsup_E2sgrl_Acm,self).__init__(method, dataset)
+        super(Unsup_E2sgrl_Acm, self).__init__(method, dataset)
 
         self.args, _ = self.parser.parse_known_args()
         self.replace()
@@ -143,9 +148,10 @@ class Unsup_E2sgrl_Acm(Unsup_E2sgrl):
         self.args.__setattr__('w_c', 2)
         self.args.__setattr__('w_u', 10)
 
+
 class Unsup_E2sgrl_Dblp(Unsup_E2sgrl):
     def __init__(self, method, dataset):
-        super(Unsup_E2sgrl_Dblp,self).__init__(method, dataset)
+        super(Unsup_E2sgrl_Dblp, self).__init__(method, dataset)
 
         self.args, _ = self.parser.parse_known_args()
         self.replace()
@@ -165,9 +171,10 @@ class Unsup_E2sgrl_Dblp(Unsup_E2sgrl):
         self.args.__setattr__('w_c', 9.0)
         self.args.__setattr__('w_u', 0.4)
 
+
 class Unsup_E2sgrl_Imdb(Unsup_E2sgrl):
     def __init__(self, method, dataset):
-        super(Unsup_E2sgrl_Imdb,self).__init__(method, dataset)
+        super(Unsup_E2sgrl_Imdb, self).__init__(method, dataset)
 
         self.args, _ = self.parser.parse_known_args()
         self.replace()
@@ -187,9 +194,10 @@ class Unsup_E2sgrl_Imdb(Unsup_E2sgrl):
         self.args.__setattr__('w_c', 2.5)
         self.args.__setattr__('w_u', 2.5)
 
+
 class Unsup_E2sgrl_Freebase(Unsup_E2sgrl):
     def __init__(self, method, dataset):
-        super(Unsup_E2sgrl_Freebase,self).__init__(method, dataset)
+        super(Unsup_E2sgrl_Freebase, self).__init__(method, dataset)
 
         self.args, _ = self.parser.parse_known_args()
         self.replace()
@@ -211,9 +219,9 @@ class Unsup_E2sgrl_Freebase(Unsup_E2sgrl):
 
 
 class Unsup_Sugrl(Unsup):
-    def __init__(self,  method, dataset):
-        super(Unsup_Sugrl,self).__init__(method, dataset)
-        self.parser.add_argument("--NN", default=4, type=int,help='number of negative samples')
+    def __init__(self, method, dataset):
+        super(Unsup_Sugrl, self).__init__(method, dataset)
+        self.parser.add_argument("--NN", default=4, type=int, help='number of negative samples')
 
         self.parser.add_argument('--weight_decay', type=float, default=0.0005, help='weight_decay in adam')
         self.parser.add_argument('--dropout', type=float, default=0.3, help='dropout rate')
@@ -223,7 +231,6 @@ class Unsup_Sugrl(Unsup):
         self.parser.add_argument('--margin1', type=float, default=0.8, help='')
         self.parser.add_argument('--margin2', type=float, default=0.2, help='')
 
-
         self.args, _ = self.parser.parse_known_args()
         self.replace()
 
@@ -232,9 +239,10 @@ class Unsup_Sugrl(Unsup):
         self.args.__setattr__('method', 'Sugrl')
         self.args.__setattr__('test_lr', 0.01)
 
+
 class Unsup_Sugrl_Cora(Unsup_Sugrl):
-    def __init__(self,  method, dataset):
-        super(Unsup_Sugrl_Cora,self).__init__(method, dataset)
+    def __init__(self, method, dataset):
+        super(Unsup_Sugrl_Cora, self).__init__(method, dataset)
         self.args, _ = self.parser.parse_known_args()
         self.replace()
 
@@ -254,9 +262,10 @@ class Unsup_Sugrl_Cora(Unsup_Sugrl):
         self.args.__setattr__('dropout', 0.3)
         self.args.__setattr__('test_epo', 100)
 
+
 class Unsup_Sugrl_CiteSeer(Unsup_Sugrl):
-    def __init__(self,  method, dataset):
-        super(Unsup_Sugrl_CiteSeer,self).__init__(method, dataset)
+    def __init__(self, method, dataset):
+        super(Unsup_Sugrl_CiteSeer, self).__init__(method, dataset)
         self.args, _ = self.parser.parse_known_args()
         self.replace()
 
@@ -276,9 +285,10 @@ class Unsup_Sugrl_CiteSeer(Unsup_Sugrl):
         self.args.__setattr__('dropout', 0.1)
         self.args.__setattr__('test_epo', 100)
 
+
 class Unsup_Sugrl_PubMed(Unsup_Sugrl):
-    def __init__(self,  method, dataset):
-        super(Unsup_Sugrl_PubMed,self).__init__(method, dataset)
+    def __init__(self, method, dataset):
+        super(Unsup_Sugrl_PubMed, self).__init__(method, dataset)
         self.args, _ = self.parser.parse_known_args()
         self.replace()
 
@@ -290,7 +300,7 @@ class Unsup_Sugrl_PubMed(Unsup_Sugrl):
         self.args.__setattr__('w_loss1', 20)
         self.args.__setattr__('w_loss2', 20)
         self.args.__setattr__('w_loss3', 1)
-        self.args.__setattr__('cfg', [512,128])
+        self.args.__setattr__('cfg', [512, 128])
         self.args.__setattr__('margin1', 0.5)
         self.args.__setattr__('margin2', 0.5)
         self.args.__setattr__('NN', 3)
@@ -298,9 +308,10 @@ class Unsup_Sugrl_PubMed(Unsup_Sugrl):
         self.args.__setattr__('dropout', 0.4)
         self.args.__setattr__('test_epo', 200)
 
+
 class Unsup_Sugrl_Photo(Unsup_Sugrl):
-    def __init__(self,  method, dataset):
-        super(Unsup_Sugrl_Photo,self).__init__(method, dataset)
+    def __init__(self, method, dataset):
+        super(Unsup_Sugrl_Photo, self).__init__(method, dataset)
         self.args, _ = self.parser.parse_known_args()
         self.replace()
 
@@ -312,7 +323,7 @@ class Unsup_Sugrl_Photo(Unsup_Sugrl):
         self.args.__setattr__('w_loss1', 100)
         self.args.__setattr__('w_loss2', 100)
         self.args.__setattr__('w_loss3', 1)
-        self.args.__setattr__('cfg', [512,128])
+        self.args.__setattr__('cfg', [512, 128])
         self.args.__setattr__('margin1', 0.9)
         self.args.__setattr__('margin2', 0.9)
         self.args.__setattr__('NN', 1)
@@ -320,9 +331,10 @@ class Unsup_Sugrl_Photo(Unsup_Sugrl):
         self.args.__setattr__('dropout', 0.1)
         self.args.__setattr__('test_epo', 200)
 
+
 class Unsup_Sugrl_Computers(Unsup_Sugrl):
-    def __init__(self,  method, dataset):
-        super(Unsup_Sugrl_Computers,self).__init__(method, dataset)
+    def __init__(self, method, dataset):
+        super(Unsup_Sugrl_Computers, self).__init__(method, dataset)
         self.args, _ = self.parser.parse_known_args()
         self.replace()
 
@@ -334,7 +346,7 @@ class Unsup_Sugrl_Computers(Unsup_Sugrl):
         self.args.__setattr__('w_loss1', 100)
         self.args.__setattr__('w_loss2', 100)
         self.args.__setattr__('w_loss3', 1)
-        self.args.__setattr__('cfg', [512,128])
+        self.args.__setattr__('cfg', [512, 128])
         self.args.__setattr__('margin1', 0.9)
         self.args.__setattr__('margin2', 0.9)
         self.args.__setattr__('NN', 5)
@@ -342,9 +354,10 @@ class Unsup_Sugrl_Computers(Unsup_Sugrl):
         self.args.__setattr__('dropout', 0.1)
         self.args.__setattr__('test_epo', 300)
 
+
 class Unsup_Dgi(Unsup):
     def __init__(self, method, dataset):
-        super(Unsup_Dgi,self).__init__(method, dataset)
+        super(Unsup_Dgi, self).__init__(method, dataset)
 
         self.parser.add_argument('--wd', type=float, default=0.0, help='weight decay in adam')
         self.parser.add_argument('--hid_dim', type=int, default=512, help='hidden dimension')
@@ -364,9 +377,10 @@ class Unsup_Dgi(Unsup):
         super(Unsup_Dgi, self).replace()
         self.args.__setattr__('method', 'Dgi')
 
+
 class Unsup_Mvgrl(Unsup):
     def __init__(self, method, dataset):
-        super(Unsup_Mvgrl,self).__init__(method, dataset)
+        super(Unsup_Mvgrl, self).__init__(method, dataset)
 
         self.parser.add_argument('--wd', type=float, default=0.0, help='weight decay in adam')
         self.parser.add_argument('--hid_dim', type=int, default=512, help='hidden dimension')
@@ -387,8 +401,8 @@ class Unsup_Mvgrl(Unsup):
         super(Unsup_Mvgrl, self).replace()
         self.args.__setattr__('method', 'Mvgrl')
 
-################END|unsupervised Task |###############
 
+################END|unsupervised Task |###############
 
 
 ################STA|supervised Task|###############
@@ -418,10 +432,11 @@ class Sup(object):
     def get_parse(self):
         return self.args
 
+
 class Sup_Gcn(Sup):
     def __init__(self, method, dataset):
         super(Sup_Gcn, self).__init__(method, dataset)
-        
+
         self.args, _ = self.parser.parse_known_args()
 
         self.replace()
@@ -430,6 +445,7 @@ class Sup_Gcn(Sup):
         super(Sup_Gcn, self).replace()
         self.args.__setattr__('method', 'SUP_GCN')
         self.args.__setattr__('lr', 0.05)
+
 
 class Sup_Gcn_Cora(Sup_Gcn):
     def __init__(self, method, dataset):
@@ -442,8 +458,8 @@ class Sup_Gcn_Cora(Sup_Gcn):
         self.args.__setattr__('dataset', 'Cora')
         self.args.__setattr__('lr', 0.01)
 
-################END|supervised Task|###############
 
+################END|supervised Task|###############
 
 
 ################STA|Reinforcement Learning|###############
@@ -467,34 +483,94 @@ class Rein(object):
     def get_parse(self):
         return self.args
 
+
 ################END|Reinforcement Learning|###############
 
+
+################STA|Vision Graph|###############
+
+class ImgCls(object):
+    def __init__(self, method, dataset):
+        self.parser = argparse.ArgumentParser()
+        self.parser.add_argument('--dataset', nargs='?', default=dataset)
+        self.parser.add_argument('--method', nargs='?', default=method)
+        self.parser.add_argument('--num_classes', type=int, default=10)
+        self.parser.add_argument('--batch_size', type=int, default=64)
+        self.parser.add_argument('--task', type=str, default='ImgCls')
+        self.parser.add_argument('--image_size', type=int, default=32)
+        self.parser.add_argument('--lr', type=float, default=0.0005, help='learning rate')
+        self.parser.add_argument('--patience', type=int, default=40, help='patience for early stopping')
+        self.parser.add_argument('--seed', type=int, default=42, help='the seed to use')
+        self.parser.add_argument('--save_root', type=str, default="./saved_model", help='root for saving the model')
+        self.parser.add_argument('--gpu_num', type=int, default=0, help='the id of gpu to use')
+        self.parser.add_argument('--workers', default=6, type=int)
+        self.parser.add_argument('--blocks', default=4, type=int)
+        self.parser.add_argument('--momentum', default=0.9, type=int)
+        self.args, _ = self.parser.parse_known_args()
+
+    def replace(self):
+        pass
+
+    def get_parse(self):
+        return self.args
+
+
+class ImgCls_ViG(ImgCls):
+    def __init__(self, method, dataset):
+        super(ImgCls_ViG, self).__init__(method, dataset)
+        self.args, _ = self.parser.parse_known_args()
+        self.replace()
+
+    def replace(self):
+        super(ImgCls_ViG, self).replace()
+        self.args.__setattr__('method', 'IMGCLS_VIG')
+        self.args.__setattr__('lr', 0.05)
+
+
+class ImgCls_ViG_CIFA10(ImgCls_ViG):
+    def __init__(self, method, dataset):
+        super(ImgCls_ViG_CIFA10, self).__init__(method, dataset)
+        self.args, _ = self.parser.parse_known_args()
+        self.replace()
+
+    def replace(self):
+        super(ImgCls_ViG_CIFA10, self).replace()
+        self.args.__setattr__('dataset', 'CIFA10')
+        self.args.__setattr__('lr', 0.05)
+        self.args.__setattr__('image_size', 32)
+
+
+################END|Vision Graph|###############
+
 params_key = {
-'Semi': Semi,
-'Semi_Gcn': Semi_Gcn,
-'Semi_Gcn_Cora': Semi_Gcn_Cora,
-'Unsup': Unsup,
-'Unsup_E2sgrl': Unsup_E2sgrl,
-'Unsup_E2sgrl_Acm': Unsup_E2sgrl_Acm,
-'Unsup_E2sgrl_Dblp': Unsup_E2sgrl_Dblp,
-'Unsup_E2sgrl_Imdb': Unsup_E2sgrl_Imdb,
-'Unsup_E2sgrl_Freebase': Unsup_E2sgrl_Freebase,
-'Unsup_Sugrl':Unsup_Sugrl,
-'Unsup_Sugrl_Cora':Unsup_Sugrl_Cora,
-'Unsup_Sugrl_CiteSeer':Unsup_Sugrl_CiteSeer,
-'Unsup_Sugrl_PubMed':Unsup_Sugrl_PubMed,
-'Unsup_Sugrl_Photo':Unsup_Sugrl_Photo,
-'Unsup_Sugrl_Computers':Unsup_Sugrl_Computers,
-'Unsup_Dgi':Unsup_Dgi,
-'Unsup_Mvgrl':Unsup_Mvgrl,
-'Sup': Sup,
-'Sup_Gcn': Sup_Gcn,
-'Sup_Gcn_Cora': Sup_Gcn_Cora,
-'Rein': Rein,
+    'Semi': Semi,
+    'Semi_Gcn': Semi_Gcn,
+    'Semi_Gcn_Cora': Semi_Gcn_Cora,
+    'Unsup': Unsup,
+    'Unsup_E2sgrl': Unsup_E2sgrl,
+    'Unsup_E2sgrl_Acm': Unsup_E2sgrl_Acm,
+    'Unsup_E2sgrl_Dblp': Unsup_E2sgrl_Dblp,
+    'Unsup_E2sgrl_Imdb': Unsup_E2sgrl_Imdb,
+    'Unsup_E2sgrl_Freebase': Unsup_E2sgrl_Freebase,
+    'Unsup_Sugrl': Unsup_Sugrl,
+    'Unsup_Sugrl_Cora': Unsup_Sugrl_Cora,
+    'Unsup_Sugrl_CiteSeer': Unsup_Sugrl_CiteSeer,
+    'Unsup_Sugrl_PubMed': Unsup_Sugrl_PubMed,
+    'Unsup_Sugrl_Photo': Unsup_Sugrl_Photo,
+    'Unsup_Sugrl_Computers': Unsup_Sugrl_Computers,
+    'Unsup_Dgi': Unsup_Dgi,
+    'Unsup_Mvgrl': Unsup_Mvgrl,
+    'Sup': Sup,
+    'Sup_Gcn': Sup_Gcn,
+    'Sup_Gcn_Cora': Sup_Gcn_Cora,
+    'Rein': Rein,
+    'ImgCls': ImgCls,
+    'ImgCls_ViG': ImgCls_ViG,
+    'ImgCls_ViG_CIFA10': ImgCls_ViG_CIFA10,
 }
 
-def parse_args(task, method, dataset):
 
+def parse_args(task, method, dataset):
     name_3 = task + '_' + method + '_' + dataset
     name_2 = task + '_' + method
     name_1 = task
@@ -507,6 +583,7 @@ def parse_args(task, method, dataset):
         return params_key[name_1](method, dataset).get_parse()
     else:
         return None
+
 
 def printConfig(args):
     arg2value = {}

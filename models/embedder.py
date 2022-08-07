@@ -1,6 +1,8 @@
 import torch
 from utils import process
 from termcolor import cprint
+from torchvision import transforms
+
 
 class embedder:
     def __init__(self, args):
@@ -45,6 +47,7 @@ class embedder:
 
         self.args = args
 
+
 class embedder_single:
     def __init__(self, args):
         # args.gpu_num_ = args.gpu_num
@@ -52,7 +55,7 @@ class embedder_single:
         #     args.device = 'cpu'
         # else:
         #     args.device = torch.device("cuda:" + str(args.gpu_num_) if torch.cuda.is_available() else "cpu")
-        
+
         args.device = torch.device("cuda:0")
         cprint("## Loading Dataset ##", "yellow")
 
@@ -76,4 +79,25 @@ class embedder_single:
         self.idx_val = idx_val.to(args.device)
         self.idx_test = idx_test.to(args.device)
 
+        self.args = args
+
+
+class embedder_image:
+    def __init__(self, args):
+        args.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        args.transform = {
+            'train': transforms.Compose([
+                transforms.RandomCrop(args.image_size, padding=4),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor()
+            ]),
+            'test': transforms.Compose([
+                transforms.ToTensor()
+            ])
+        }
+        cprint('## Loading Dataset ##', 'yellow')
+        train_dl, val_dl, test_dl = process.load_image_dataset(args)
+        self.train_dl = train_dl
+        self.val_dl = val_dl
+        self.test_dl = test_dl
         self.args = args
