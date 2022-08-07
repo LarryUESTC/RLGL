@@ -401,8 +401,6 @@ class Unsup_Mvgrl(Unsup):
         super(Unsup_Mvgrl, self).replace()
         self.args.__setattr__('method', 'Mvgrl')
 
-<<<<<<< HEAD
-=======
 
 class Unsup_Gmi(Unsup):
     def __init__(self, method, dataset):
@@ -428,10 +426,7 @@ class Unsup_Gmi(Unsup):
     def replace(self):
         super(Unsup_Gmi, self).replace()
         self.args.__setattr__('method', 'Gmi')
-
-
-################END|unsupervised Task |###############
->>>>>>> 9d717f71994667e2fa8912358349f3858c7ff630
+        
 
 ################END|unsupervised Task |###############
 
@@ -574,7 +569,6 @@ class ImgCls_ViG_CIFA10(ImgCls_ViG):
 ################END|Vision Graph|###############
 
 params_key = {
-<<<<<<< HEAD
     'Semi': Semi,
     'Semi_Gcn': Semi_Gcn,
     'Semi_Gcn_Cora': Semi_Gcn_Cora,
@@ -595,34 +589,11 @@ params_key = {
     'Sup': Sup,
     'Sup_Gcn': Sup_Gcn,
     'Sup_Gcn_Cora': Sup_Gcn_Cora,
+    'Unsup_Gmi':Unsup_Gmi,
     'Rein': Rein,
     'ImgCls': ImgCls,
     'ImgCls_ViG': ImgCls_ViG,
     'ImgCls_ViG_CIFA10': ImgCls_ViG_CIFA10,
-=======
-'Semi': Semi,
-'Semi_Gcn': Semi_Gcn,
-'Semi_Gcn_Cora': Semi_Gcn_Cora,
-'Unsup': Unsup,
-'Unsup_E2sgrl': Unsup_E2sgrl,
-'Unsup_E2sgrl_Acm': Unsup_E2sgrl_Acm,
-'Unsup_E2sgrl_Dblp': Unsup_E2sgrl_Dblp,
-'Unsup_E2sgrl_Imdb': Unsup_E2sgrl_Imdb,
-'Unsup_E2sgrl_Freebase': Unsup_E2sgrl_Freebase,
-'Unsup_Sugrl':Unsup_Sugrl,
-'Unsup_Sugrl_Cora':Unsup_Sugrl_Cora,
-'Unsup_Sugrl_CiteSeer':Unsup_Sugrl_CiteSeer,
-'Unsup_Sugrl_PubMed':Unsup_Sugrl_PubMed,
-'Unsup_Sugrl_Photo':Unsup_Sugrl_Photo,
-'Unsup_Sugrl_Computers':Unsup_Sugrl_Computers,
-'Unsup_Dgi':Unsup_Dgi,
-'Unsup_Mvgrl':Unsup_Mvgrl,
-'Sup': Sup,
-'Sup_Gcn': Sup_Gcn,
-'Sup_Gcn_Cora': Sup_Gcn_Cora,
-'Unsup_Gmi':Unsup_Gmi,
-'Rein': Rein,
->>>>>>> 9d717f71994667e2fa8912358349f3858c7ff630
 }
 
 

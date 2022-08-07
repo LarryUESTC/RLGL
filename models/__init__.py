@@ -21,6 +21,7 @@ method_dict = {
 'SUGRL':SUGRL,
 'GMI':GMI,
 'MVGRL':MVGRL,
+'IMGCLS_VIG':IMGCLS_VIG
 }
 
 
