@@ -389,6 +389,63 @@ class Unsup_Mvgrl(Unsup):
 
 ################END|unsupervised Task |###############
 
+
+
+################STA|supervised Task|###############
+
+class Sup(object):
+    def __init__(self, method, dataset):
+        self.parser = argparse.ArgumentParser()
+        self.parser.add_argument('--dataset', nargs='?', default=dataset)
+        self.parser.add_argument('--method', nargs='?', default=method)
+        self.parser.add_argument('--task', type=str, default='sup')
+        self.parser.add_argument('--lr', type=float, default=0.0005, help='learning rate')
+        self.parser.add_argument('--patience', type=int, default=40, help='patience for early stopping')
+        self.parser.add_argument('--seed', type=int, default=0, help='the seed to use')
+        self.parser.add_argument('--save_root', type=str, default="./saved_model", help='root for saving the model')
+        self.parser.add_argument('--random_aug_feature', type=float, default=0.2, help='RA feature')
+        self.parser.add_argument('--random_aug_edge', type=float, default=0.2, help='RA graph')
+
+        self.parser.add_argument('--train_rate', type=float, default=0.8, help='rate of training set')
+        self.parser.add_argument('--validate_rate', type=float, default=0.1, help='rate of validation set')
+        self.parser.add_argument('--test_rate', type=float, default=0.1, help='rate of testing set')
+
+        self.args, _ = self.parser.parse_known_args()
+
+    def replace(self):
+        pass
+
+    def get_parse(self):
+        return self.args
+
+class Sup_Gcn(Sup):
+    def __init__(self, method, dataset):
+        super(Sup_Gcn, self).__init__(method, dataset)
+        
+        self.args, _ = self.parser.parse_known_args()
+
+        self.replace()
+
+    def replace(self):
+        super(Sup_Gcn, self).replace()
+        self.args.__setattr__('method', 'SUP_GCN')
+        self.args.__setattr__('lr', 0.05)
+
+class Sup_Gcn_Cora(Sup_Gcn):
+    def __init__(self, method, dataset):
+        super(Sup_Gcn, self).__init__(method, dataset)
+        self.args, _ = self.parser.parse_known_args()
+        self.replace()
+
+    def replace(self):
+        super(Sup_Gcn_Cora, self).replace()
+        self.args.__setattr__('dataset', 'Cora')
+        self.args.__setattr__('lr', 0.01)
+
+################END|supervised Task|###############
+
+
+
 ################STA|Reinforcement Learning|###############
 class Rein(object):
     def __init__(self, method, dataset):
@@ -430,6 +487,9 @@ params_key = {
 'Unsup_Sugrl_Computers':Unsup_Sugrl_Computers,
 'Unsup_Dgi':Unsup_Dgi,
 'Unsup_Mvgrl':Unsup_Mvgrl,
+'Sup': Sup,
+'Sup_Gcn': Sup_Gcn,
+'Sup_Gcn_Cora': Sup_Gcn_Cora,
 'Rein': Rein,
 }
 
