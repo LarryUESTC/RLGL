@@ -10,6 +10,7 @@ import socket, os
 import gc
 import copy
 
+# torch.autograd.set_detect_anomaly(True)
 
 def main_one(config, checkpoint_dir=None):
     ################STA|SQL|###############
@@ -39,20 +40,20 @@ def main_one(config, checkpoint_dir=None):
     }
 
     TABLE_NAME = 'main_RLGL_' + current_args.task + '_' + current_args.method + '_0'
-    try:
-        writer = WriteToDatabase({'host': "postgres.kongfei.life", "port": "",
-                                  "database": "pengliang", "user": "pengliang", "password": ""},
-                                 TABLE_NAME,
-                                 PRIMARY_KEY,
-                                 get_columns(train_metrics, val_metrics, test_metrics),
-                                 PRIMARY_VALUE,
-                                 PRIMARY_VALUE,
-                                 REFRESH,
-                                 OVERWRITE)
-        writer.init()
-    except:
-        print("Keys not matched in current table, pls check KEY, or network error")
-        print("Change TABLE_NAME to create a new table")
+    # try:
+    #     writer = WriteToDatabase({'host': "postgres.kongfei.life", "port": "",
+    #                               "database": "pengliang", "user": "pengliang", "password": ""},
+    #                              TABLE_NAME,
+    #                              PRIMARY_KEY,
+    #                              get_columns(train_metrics, val_metrics, test_metrics),
+    #                              PRIMARY_VALUE,
+    #                              PRIMARY_VALUE,
+    #                              REFRESH,
+    #                              OVERWRITE)
+    #     writer.init()
+    # except:
+    #     print("Keys not matched in current table, pls check KEY, or network error")
+    #     print("Change TABLE_NAME to create a new table")
     ################END|SQL|###############
 
     current_args.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
