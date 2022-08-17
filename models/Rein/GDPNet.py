@@ -67,10 +67,11 @@ class Policy(nn.Module):
         )
         self.buffer = RecordeBuffer()
 
-    def forward(self, adj, feature_origin, labels=None):
+    def forward(self, adj, features, labels=None):
         # TODO: every node with different number of neighbors, how to handle them with a matrix way.
-        feature = copy.deepcopy(feature_origin)
-        feature = self.get_embedding(feature)  # change the feature dimension to embedding dimension
+        feature_origin = copy.deepcopy(features)
+        feature = self.get_embedding(features)  # change the feature dimension to embedding dimension
+        embedding = torch.zeros_like(feature)
         for i, col in enumerate(adj):
             idx = list(np.where(col.detach().cpu() != 0)[0])  # the neighbor index of node i
             idx.append(self.ending_idx)  # ending neighbor index
@@ -107,7 +108,7 @@ class Policy(nn.Module):
                 if labels is not None:
                     rt = self.get_reward(feature_origin[i], feature_origin[idx[ut_index]], hv, labels[i])
                     self.buffer.actions.append(at)
-                    self.buffer.states.append(hidden[ut_index])
+                    self.buffer.states.append(s[ut_index])
                     self.buffer.logprobs.append(at_dist.log_prob(at))
                     self.buffer.rewards.append(rt)
                     self.buffer.is_end.append(False)
@@ -123,9 +124,12 @@ class Policy(nn.Module):
                 hut = self.get_embedding(feature_origin[idx[ut_index]])
                 feature[i] = hv
                 feature[idx[ut_index]] = hut
+                embedding[i] = hv
+                embedding[idx[ut_index]] = hut
                 # TODO:区分每个节点的embedding更新时使用的特征
                 idx.pop(ut_index)  # del the selected node from the neighborhood set
-        return feature
+        return embedding
+
 
     def get_reward(self, xv, xu, neighbor, lb):
         r_xv = fc(self.get_rt(self.get_embedding((xv + xu) / 2)), lb)
@@ -137,52 +141,64 @@ class Policy(nn.Module):
         return r_xv / r_neighbor if r_neighbor.sum() != 0 else 0
 
     def evaluate(self, state, action):
-        at_distribution = F.softmax(self.get_action(state), dim=0)
+        hidden = self.fc(state)
+        at_distribution = F.softmax(self.get_action(hidden), dim=0)
         dist = Categorical(at_distribution)
         action_logprobs = dist.log_prob(action)
         dist_entropy = dist.entropy()
-        return action_logprobs, dist_entropy
+        state_value = self.get_lk(hidden)
+        return state_value, action_logprobs, dist_entropy
 
 
 class GDP_Module(nn.Module):
-    def __init__(self, input_features, layers, embedding_features, n_classes=7, lr=0.0003, gamma=0.95, K_epoch=1,
+    def __init__(self, input_features, layers, embedding_features, n_classes=7, lr=0.0003, gamma=0.95, K_epoch=40,
                  eps_clip=0.2, act='relu', device='cpu'):
         super(GDP_Module, self).__init__()
-        self.gamma = gamma
-        self.eps_clip = eps_clip
-        self.K_epochs = K_epoch
-        self.device = device
+        self.gamma = gamma  # discount rato
+        self.eps_clip = eps_clip  # PPO paramars
+        self.K_epochs = K_epoch  # PPO update times
+        self.device = device  # device
 
+        # main model
         self.policy = Policy(input_features, layers, embedding_features, n_classes=n_classes, bias=False, act=act,
                              device=device)
+        # the optimizer of reinforced learning
         self.optimizer = torch.optim.Adam(params=self.policy.parameters(), lr=lr)
+        # other model
         self.policy_old = Policy(input_features, layers, embedding_features, n_classes=n_classes, bias=False, act=act,
                                  device=device)
+        # classificator
         self.predict = nn.Linear(embedding_features, n_classes, bias=False)
+        # load the parameter of the main model
         self.policy_old.load_state_dict(self.policy.state_dict())
-        self.mse_loss = nn.MSELoss()
+        self.mse_loss = nn.MSELoss()  # loss used in reinforced learning
 
     def update(self, adj, x, labels):
-        self.policy_old(adj, x, labels)
+        self.policy_old(adj, x, labels)  # get reward state and caction (in policy_old.buffer)
         rewards = []
         discounted_reward = 0
+        # caculate the discounted reward
         for reward, is_end in zip(reversed(self.policy_old.buffer.rewards), reversed(self.policy_old.buffer.is_end)):
             if is_end:
                 discounted_reward = 0
             discounted_reward = reward + (self.gamma * discounted_reward)
             rewards.insert(0, discounted_reward)
 
+        # normalization
         rewards = torch.tensor(rewards, dtype=torch.float32).to(self.device)
         rewards_norm = (rewards - rewards.mean()) / (rewards.std() + 1e-7)
 
+        # load states, actions and probs
         old_states = torch.squeeze(torch.stack(self.policy_old.buffer.states, dim=0)).detach().to(self.device)
         old_actions = torch.squeeze(torch.stack(self.policy_old.buffer.actions, dim=0)).detach().to(self.device)
         old_logprobs = torch.squeeze(torch.stack(self.policy_old.buffer.logprobs, dim=0)).detach().to(self.device)
 
         for i in range(self.K_epochs):
-            logprobs, dist_entropy = self.policy.evaluate(old_states, old_actions)
-            state_values = rewards
-            ratios = torch.exp(logprobs - old_logprobs.detach())
+            # the equation of PPO-clip (paper use the PPO-penalty, but I think it dose not a matter)
+            # get Q_value，probity and the entropy of distribution from main model
+            state_values, logprobs, dist_entropy = self.policy.evaluate(old_states, old_actions)
+            state_values = torch.squeeze(state_values)
+            ratios = torch.exp(logprobs - old_logprobs.detach())  # divide the probs
 
             advantages = rewards_norm - state_values.detach()
             surr1 = ratios * advantages
@@ -198,14 +214,15 @@ class GDP_Module(nn.Module):
 
     def forward(self, adj, x):
         embedding = self.policy(adj, x)
-        return self.predict(embedding)
+        res = self.predict(embedding)
+        return res
 
 
 class GDPNet(embedder_single):
     def __init__(self, args):
+        # args.device = 'cuda:3'
         super(GDPNet, self).__init__(args)
         self.args = args
-        # args.device = 'cpu'
         nb_classes = (self.labels.max() - self.labels.min() + 1).item()
         self.model = GDP_Module(self.features.shape[-1], self.args.cfg, self.args.feature_dimension, act='relu',
                                 n_classes=nb_classes, device=self.args.device).to(self.args.device)
