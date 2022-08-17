@@ -8,6 +8,9 @@ from torch.nn import functional as F
 from torch.distributions import Categorical
 from models.Layers import act_layer
 from evaluate import accuracy
+import setproctitle
+
+setproctitle.setproctitle('zerorains')
 
 
 class RecordeBuffer:
@@ -60,6 +63,7 @@ class Policy(nn.Module):
             nn.Linear(input_features, embedding_features, bias=bias),
             act_layer(act)
         )
+        # using in reward calculate
         self.get_rt = nn.Sequential(
             nn.Linear(embedding_features, 64, bias=bias),
             act_layer(act),
@@ -130,7 +134,6 @@ class Policy(nn.Module):
                 idx.pop(ut_index)  # del the selected node from the neighborhood set
         return embedding
 
-
     def get_reward(self, xv, xu, neighbor, lb):
         r_xv = fc(self.get_rt(self.get_embedding((xv + xu) / 2)), lb)
         if len(neighbor) != 0:
@@ -177,7 +180,7 @@ class GDP_Module(nn.Module):
         self.policy_old(adj, x, labels)  # get reward state and caction (in policy_old.buffer)
         rewards = []
         discounted_reward = 0
-        # caculate the discounted reward
+        # calculate the discounted reward
         for reward, is_end in zip(reversed(self.policy_old.buffer.rewards), reversed(self.policy_old.buffer.is_end)):
             if is_end:
                 discounted_reward = 0
@@ -248,7 +251,7 @@ class GDPNet(embedder_single):
         for epoch in range(self.args.nb_epochs):
             self.model.train()
             optimiser.zero_grad()
-            # self.model.update(graph_org, features, self.labels)
+            self.model.update(graph_org, features, self.labels)
             embeds = self.model(graph_org, features)
             loss = F.cross_entropy(embeds[self.idx_train], train_lbls)
             print(loss)
