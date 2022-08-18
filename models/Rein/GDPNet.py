@@ -154,7 +154,7 @@ class Policy(nn.Module):
 
 
 class GDP_Module(nn.Module):
-    def __init__(self, input_features, layers, embedding_features, n_classes=7, lr=0.0003, gamma=0.95, K_epoch=40,
+    def __init__(self, input_features, layers, embedding_features, n_classes=7, lr=0.005, gamma=0.95, K_epoch=40,
                  eps_clip=0.2, act='relu', device='cpu'):
         super(GDP_Module, self).__init__()
         self.gamma = gamma  # discount rato
