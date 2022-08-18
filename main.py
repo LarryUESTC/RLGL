@@ -101,8 +101,7 @@ def main(args):
         'wd': 2e-5,
         'test_epo': 50,
         'test_lr': 0.01,
-        'cfg': [48, 96],
-        'blocks': [2, 2],  # 新增的參數
+        'cfg': [64, 36],
         'random_aug_feature': 0.1,
         'random_aug_edge': 0.0,
         'alpha': 1,
@@ -114,9 +113,9 @@ def main(args):
 
 
 if __name__ == '__main__':
-    task = 'ImgCls'  # choice:Semi Unsup Sup Rein Noise ImgCls
-    method = 'ViG'  # choice: Gcn ViG
-    dataset = 'CIFAR10'  # choice:Cora CiteSeer PubMed CIFAR10
+    task = 'Rein'  # choice:Semi Unsup Sup Rein Noise ImgCls
+    method = 'GDP'  # choice: Gcn ViG GDP
+    dataset = 'Cora'  # choice:Cora CiteSeer PubMed CIFAR10
     args = parse_args(task, method, dataset)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False

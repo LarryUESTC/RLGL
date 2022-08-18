@@ -404,14 +404,15 @@ class Unsup_Mvgrl(Unsup):
 
 class Unsup_Gmi(Unsup):
     def __init__(self, method, dataset):
-        super(Unsup_Gmi,self).__init__(method, dataset)
+        super(Unsup_Gmi, self).__init__(method, dataset)
         self.parser.add_argument('--wd', type=float, default=0.0, help='weight decay in adam')
         self.parser.add_argument('--hid_dim', type=int, default=256, help='hidden dimension')
         self.parser.add_argument('--activation', type=str, default='prelu', help='activation function after gcn')
         self.parser.add_argument('--negative_num', type=int, default=5, help='number of negative samples')
-        self.parser.add_argument('--alpha', type=float, default=0.8,help='parameter for I(h_i; x_i) (default: 0.8)')
-        self.parser.add_argument('--beta', type=float, default=1.0,help='parameter for I(h_i; x_j), node j is a neighbor (default: 1.0)')
-        self.parser.add_argument('--gamma', type=float, default=1.0,help='parameter for I(w_ij; a_ij) (default: 1.0)')
+        self.parser.add_argument('--alpha', type=float, default=0.8, help='parameter for I(h_i; x_i) (default: 0.8)')
+        self.parser.add_argument('--beta', type=float, default=1.0,
+                                 help='parameter for I(h_i; x_j), node j is a neighbor (default: 1.0)')
+        self.parser.add_argument('--gamma', type=float, default=1.0, help='parameter for I(w_ij; a_ij) (default: 1.0)')
 
         self.args, _ = self.parser.parse_known_args()
 
@@ -426,7 +427,7 @@ class Unsup_Gmi(Unsup):
     def replace(self):
         super(Unsup_Gmi, self).replace()
         self.args.__setattr__('method', 'Gmi')
-        
+
 
 ################END|unsupervised Task |###############
 
@@ -510,6 +511,21 @@ class Rein(object):
         return self.args
 
 
+class Rein_GDP_Cora(Rein):
+    def __init__(self, method, dataset):
+        super(Rein_GDP_Cora, self).__init__(method, dataset)
+        self.args, _ = self.parser.parse_known_args()
+        self.replace()
+
+    def replace(self):
+        super(Rein_GDP_Cora, self).replace()
+        self.args.batch_size = 256
+        self.args.feature_dimension = 128
+        self.args.discount_factor = 0.95
+        self.args.__setattr__('method', 'GDP')
+        self.args.__setattr__('dataset', 'Cora')
+
+
 ################END|Reinforcement Learning|###############
 
 
@@ -549,6 +565,7 @@ class ImgCls_ViG(ImgCls):
 
     def replace(self):
         super(ImgCls_ViG, self).replace()
+        self.args.blocks = [2, 2]  # the number of ViG in every layer
         self.args.__setattr__('method', 'IMGCLS_VIG')
         self.args.__setattr__('lr', 0.05)
 
@@ -589,8 +606,9 @@ params_key = {
     'Sup': Sup,
     'Sup_Gcn': Sup_Gcn,
     'Sup_Gcn_Cora': Sup_Gcn_Cora,
-    'Unsup_Gmi':Unsup_Gmi,
+    'Unsup_Gmi': Unsup_Gmi,
     'Rein': Rein,
+    'Rein_GDP_Cora': Rein_GDP_Cora,
     'ImgCls': ImgCls,
     'ImgCls_ViG': ImgCls_ViG,
     'ImgCls_ViG_CIFA10': ImgCls_ViG_CIFA10,
