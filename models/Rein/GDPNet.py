@@ -9,6 +9,7 @@ from torch.distributions import Categorical
 from models.Layers import act_layer
 from evaluate import accuracy
 import setproctitle
+import matplotlib.pyplot as plt
 
 setproctitle.setproctitle('zerorains')
 
@@ -181,7 +182,7 @@ class GDP_Module(nn.Module):
 
     def update(self, adj, x, labels, pretrain=False, train_index=None):
         if pretrain:
-            pred = self.policy(adj, x, pretrain, True)
+            pred = self.policy(adj, x, pretrain=pretrain, labels=labels)
             if train_index is not None:
                 loss = self.ce_loss(pred[train_index], labels[train_index])
             else:
@@ -204,6 +205,7 @@ class GDP_Module(nn.Module):
 
         # normalization
         rewards = torch.tensor(rewards, dtype=torch.float32).to(self.device)
+        print(f"mean rewards: {rewards.sum().item()}")
         rewards_norm = (rewards - rewards.mean()) / (rewards.std() + 1e-7)
 
         # load states, actions and probs
@@ -237,7 +239,7 @@ class GDP_Module(nn.Module):
 
 class GDPNet(embedder_single):
     def __init__(self, args):
-        args.device = 'cuda:3'
+        args.device = 'cuda:1'
         super(GDPNet, self).__init__(args)
         self.args = args
         nb_classes = (self.labels.max() - self.labels.min() + 1).item()
@@ -259,14 +261,19 @@ class GDPNet(embedder_single):
         stop_epoch = 0
 
         start = time.time()
+        rewards = []
 
         for epoch in range(self.args.pretrain_epochs + self.args.nb_epochs):
             self.model.train()
             if epoch < self.args.pretrain_epochs:
-                self.model.update(graph_org, features, self.labels, True, self.idx_train)
+                self.model.update(graph_org, features, self.labels, pretrain=True, train_index=self.idx_train)
             else:
                 print("*" * 15 + f"  Epoch {epoch - self.args.pretrain_epochs}  " + "*" * 15)
-                self.model.update(graph_org, features, self.labels, False)
+                reward = self.model.update(graph_org, features, self.labels, pretrain=False, train_index=self.idx_train)
+                rewards.append(reward)
+
+                plt.plot(range(len(rewards)), rewards)
+                plt.savefig("rewards.png")
             if epoch >= self.args.pretrain_epochs and epoch % 5 == 0 and epoch != 0:
                 self.model.eval()
                 with torch.no_grad():
@@ -281,8 +288,8 @@ class GDPNet(embedder_single):
                     cnt_wait = 0
                 else:
                     cnt_wait += 1
-                if cnt_wait == self.args.patience:
-                    break
+                # if cnt_wait == self.args.patience:
+                #     break
 
         training_time = time.time() - start
         print("\t[Classification] ACC: {:.4f} | stop_epoch: {:}| training_time: {:.4f} ".format(
