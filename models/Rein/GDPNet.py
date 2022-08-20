@@ -231,6 +231,7 @@ class GDP_Module(nn.Module):
             self.optimizer.step()
         self.policy_old.load_state_dict(self.policy.state_dict())
         self.policy_old.buffer.clear()
+        return rewards.sum().item()
 
     def forward(self, adj, x):
         res = self.policy(adj, x)
@@ -294,4 +295,5 @@ class GDPNet(embedder_single):
         training_time = time.time() - start
         print("\t[Classification] ACC: {:.4f} | stop_epoch: {:}| training_time: {:.4f} ".format(
             output_acc, stop_epoch, training_time))
+
         return output_acc, training_time, stop_epoch
