@@ -13,8 +13,9 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 
 setproctitle.setproctitle('zerorains')
-# torch.autograd.set_detect_anomaly(True)
 
+
+# torch.autograd.set_detect_anomaly(True)
 
 
 class RecordeBuffer:
@@ -81,6 +82,7 @@ class Policy(nn.Module):
         # TODO: every node with different number of neighbors, how to handle them with a matrix way.
         feature_origin = copy.deepcopy(features)
         feature = self.get_embedding(features)  # change the feature dimension to embedding dimension
+        neighbor_num = 0.0
         if not pretrain:
             embedding = torch.zeros_like(feature)
             for i, col in tqdm(enumerate(adj)):
@@ -105,6 +107,7 @@ class Policy(nn.Module):
                     ut_dist = Categorical(ut_distribution.T)
                     ut_index = ut_dist.sample().item()  # sampling
                     if idx[ut_index] == self.ending_idx:  # if sample the ending node, stop it
+                        neighbor_num += len(signal_neighbor_i)
                         if flag and labels is not None:
                             self.buffer.is_end[-1] = True
                         break
@@ -121,7 +124,7 @@ class Policy(nn.Module):
                         self.buffer.actions.append(at.detach())
                         self.buffer.states.append(s[ut_index].detach())
                         self.buffer.logprobs.append(at_dist.log_prob(at).detach())
-                        self.buffer.rewards.append(rt.detach())
+                        self.buffer.rewards.append(rt)
                         self.buffer.is_end.append(False)
                         self.buffer.values.append(lk[ut_index].detach())
                     flag = True
@@ -142,7 +145,7 @@ class Policy(nn.Module):
             res = self.get_rt(embedding)
         else:
             res = self.get_rt(feature)
-        return res
+        return res, neighbor_num / adj.shape[0]
 
     def get_reward(self, xv, xu, neighbor, lb):
         r_xv = fc(self.get_rt(self.get_embedding((xv + xu) / 2)), lb)
@@ -181,7 +184,7 @@ class GDP_Module(nn.Module):
 
     def update(self, adj, x, labels, pretrain=False, train_index=None):
         if pretrain:
-            pred = self.policy(adj, x, pretrain=pretrain, labels=labels)
+            pred, _ = self.policy(adj, x, pretrain=pretrain, labels=labels)
             if train_index is not None:
                 loss = self.ce_loss(pred[train_index], labels[train_index])
             else:
@@ -190,9 +193,8 @@ class GDP_Module(nn.Module):
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
-            self.policy_old.load_state_dict(self.policy.state_dict())
             return
-        res = self.policy(adj, x, labels)  # get reward state and caction (in polic.buffer)
+        res, nodes = self.policy(adj, x, labels)  # get reward state and caction (in polic.buffer)
         values = torch.cat(self.policy.buffer.values)
         reward_len = len(self.policy.buffer.rewards)
         advantage = torch.zeros(reward_len, dtype=torch.float32).to(self.device)
@@ -238,7 +240,7 @@ class GDP_Module(nn.Module):
 
         loss = actor_loss + 0.5 * critic_loss + cls_loss
         rewards = sum(self.policy.buffer.rewards).item()
-        print(f"PPO Loss: {loss} rewards: {rewards}")
+        print(f"PPO Loss: {loss} rewards: {rewards} node_num: {nodes}")
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
@@ -248,7 +250,7 @@ class GDP_Module(nn.Module):
         return rewards
 
     def forward(self, adj, x):
-        res = self.policy(adj, x)
+        res, _ = self.policy(adj, x)
         return res
 
 
@@ -278,7 +280,7 @@ class GDPNet(embedder_single):
         start = time.time()
         rewards = []
 
-        for epoch in range(500, self.args.pretrain_epochs + self.args.nb_epochs):
+        for epoch in range(self.args.pretrain_epochs + self.args.nb_epochs):
             self.model.train()
             if epoch < self.args.pretrain_epochs:
                 self.model.update(graph_org, features, self.labels, pretrain=True, train_index=self.idx_train)
@@ -286,9 +288,8 @@ class GDPNet(embedder_single):
                 print("*" * 15 + f"  Epoch {epoch - self.args.pretrain_epochs}  " + "*" * 15)
                 reward = self.model.update(graph_org, features, self.labels, pretrain=False, train_index=self.idx_train)
                 rewards.append(reward)
-
                 plt.plot(range(len(rewards)), rewards)
-                plt.savefig("rewards.png")
+                plt.savefig("rewards_2.png")
             if epoch >= self.args.pretrain_epochs and epoch % 5 == 0 and epoch != 0:
                 self.model.eval()
                 with torch.no_grad():
