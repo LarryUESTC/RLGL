@@ -10,8 +10,11 @@ from models.Layers import act_layer
 from evaluate import accuracy
 import setproctitle
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 setproctitle.setproctitle('zerorains')
+# torch.autograd.set_detect_anomaly(True)
+
 
 
 class RecordeBuffer:
@@ -20,6 +23,7 @@ class RecordeBuffer:
         self.states = []
         self.logprobs = []
         self.rewards = []
+        self.values = []
         self.is_end = []
 
     def clear(self):
@@ -28,6 +32,7 @@ class RecordeBuffer:
         del self.logprobs[:]
         del self.rewards[:]
         del self.is_end[:]
+        del self.values[:]
 
 
 def fc(x, lb):
@@ -55,14 +60,14 @@ class Policy(nn.Module):
                 )
             ]
         self.fc = nn.Sequential(*self.fc)
-        # get the lk in every node k. lk is a score, so the output is 1
+        # get the lk in every node k. lk is a score, so the output is 1, state-value function
         self.get_lk = nn.Linear(layers[-1], 1, bias=bias)
         # get the action value. action ={0,1}, so the output is 2
         self.get_action = nn.Linear(layers[-1], 2, bias=bias)
         # use to calculate the embedding of node v
         self.get_embedding = nn.Sequential(
             nn.Linear(input_features, embedding_features, bias=bias),
-            act_layer(act)
+            nn.ReLU(inplace=True)
         )
         # using in reward calculate
         self.get_rt = nn.Sequential(
@@ -78,23 +83,23 @@ class Policy(nn.Module):
         feature = self.get_embedding(features)  # change the feature dimension to embedding dimension
         if not pretrain:
             embedding = torch.zeros_like(feature)
-            for i, col in enumerate(adj):
+            for i, col in tqdm(enumerate(adj)):
                 idx = list(np.where(col.detach().cpu() != 0)[0])  # the neighbor index of node i
                 idx.append(self.ending_idx)  # ending neighbor index
                 # init the ending neighbor feature
                 ending_neighbor_feature = torch.zeros(self.embedding_features).to(self.device)
                 signal_neighbor_i = []
                 ut_index = 0
-                flag = False  # 选邻居了
+                flag = False
                 while ut_index != self.ending_idx:
                     # determine the neighborhood order
                     # concat the h_v and the h_ut
                     s = [torch.cat((feature[i], feature[v]))
                          if v > 0 else torch.cat((feature[i], ending_neighbor_feature))
                          for v in idx]
-                    s = torch.cat(s).reshape(-1, self.embedding_features * 2)
+                    s = torch.stack(s, dim=0)
                     hidden = self.fc(s)
-                    lk = self.get_lk(hidden)  # get the regret score l
+                    lk = self.get_lk(hidden)  # get the regret score l, it just like state-value function Q
                     ut_distribution = F.softmax(lk, dim=0)
                     # get the ut~softmax([l1,...,le,...,lk])
                     ut_dist = Categorical(ut_distribution.T)
@@ -113,11 +118,12 @@ class Policy(nn.Module):
                     hv = [feature_origin[u] for u in signal_neighbor_i]
                     if labels is not None:
                         rt = self.get_reward(feature_origin[i], feature_origin[idx[ut_index]], hv, labels[i])
-                        self.buffer.actions.append(at)
-                        self.buffer.states.append(s[ut_index])
-                        self.buffer.logprobs.append(at_dist.log_prob(at))
-                        self.buffer.rewards.append(rt)
+                        self.buffer.actions.append(at.detach())
+                        self.buffer.states.append(s[ut_index].detach())
+                        self.buffer.logprobs.append(at_dist.log_prob(at).detach())
+                        self.buffer.rewards.append(rt.detach())
                         self.buffer.is_end.append(False)
+                        self.buffer.values.append(lk[ut_index].detach())
                     flag = True
 
                     if at == 1:
@@ -125,14 +131,13 @@ class Policy(nn.Module):
                         hv.append(feature_origin[idx[ut_index]])
                     # update the representation
                     hv.append(feature_origin[i])
-                    hv = torch.cat(hv).reshape(-1, feature_origin.shape[-1])
+                    hv = torch.stack(hv, dim=0)
                     hv = self.get_embedding(hv.mean(dim=0))
                     hut = self.get_embedding(feature_origin[idx[ut_index]])
                     feature[i] = hv
                     feature[idx[ut_index]] = hut
                     embedding[i] = hv
                     embedding[idx[ut_index]] = hut
-                    # TODO:区分每个节点的embedding更新时使用的特征
                     idx.pop(ut_index)  # del the selected node from the neighborhood set
             res = self.get_rt(embedding)
         else:
@@ -142,11 +147,11 @@ class Policy(nn.Module):
     def get_reward(self, xv, xu, neighbor, lb):
         r_xv = fc(self.get_rt(self.get_embedding((xv + xu) / 2)), lb)
         if len(neighbor) != 0:
-            r_neighbor = fc(self.get_rt(self.get_embedding((xv + torch.cat(neighbor).reshape(-1, xv.shape[0])) / 2)),
+            r_neighbor = fc(self.get_rt(self.get_embedding((xv + torch.stack(neighbor, dim=0)) / 2)),
                             lb)
         else:
             r_neighbor = fc(self.get_rt(self.get_embedding(xv)), lb)
-        return r_xv / r_neighbor if r_neighbor.sum() != 0 else 0
+        return r_xv / r_neighbor if r_neighbor.item() != 0 else r_xv
 
     def evaluate(self, state, action):
         hidden = self.fc(state)
@@ -159,25 +164,19 @@ class Policy(nn.Module):
 
 
 class GDP_Module(nn.Module):
-    def __init__(self, input_features, layers, embedding_features, n_classes=7, lr=0.005, gamma=0.95, K_epoch=40,
-                 eps_clip=0.2, act='relu', device='cpu'):
+    def __init__(self, input_features, layers, embedding_features, n_classes=7, lr=0.005, gamma=0.99, gae_lambda=0.95,
+                 K_epoch=40, eps_clip=0.2, act='relu', device='cpu'):
         super(GDP_Module, self).__init__()
-        self.gamma = gamma  # discount rato
-        self.eps_clip = eps_clip  # PPO paramars
-        self.K_epochs = K_epoch  # PPO update times
-        self.device = device  # device
+        self.gamma = gamma
+        self.eps_clip = eps_clip
+        self.K_epoch = K_epoch
+        self.gae_lambda = gae_lambda
+        self.device = device
 
-        # main model
         self.policy = Policy(input_features, layers, embedding_features, n_classes=n_classes, bias=False, act=act,
                              device=device)
-        # the optimizer of reinforced learning
-        self.optimizer = torch.optim.Adam(params=self.policy.parameters(), lr=lr)
-        # other model
-        self.policy_old = Policy(input_features, layers, embedding_features, n_classes=n_classes, bias=False, act=act,
-                                 device=device)
-        # load the parameter of the main model
-        self.policy_old.load_state_dict(self.policy.state_dict())
-        self.mse_loss = nn.MSELoss()  # loss used in reinforced learning
+        self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=lr)
+        self.mse_loss = nn.MSELoss()
         self.ce_loss = nn.CrossEntropyLoss()
 
     def update(self, adj, x, labels, pretrain=False, train_index=None):
@@ -193,45 +192,60 @@ class GDP_Module(nn.Module):
             self.optimizer.step()
             self.policy_old.load_state_dict(self.policy.state_dict())
             return
-        self.policy_old(adj, x, labels)  # get reward state and caction (in policy_old.buffer)
-        rewards = []
-        discounted_reward = 0
-        # calculate the discounted reward
-        for reward, is_end in zip(reversed(self.policy_old.buffer.rewards), reversed(self.policy_old.buffer.is_end)):
-            if is_end:
-                discounted_reward = 0
-            discounted_reward = reward + (self.gamma * discounted_reward)
-            rewards.insert(0, discounted_reward)
+        res = self.policy(adj, x, labels)  # get reward state and caction (in polic.buffer)
+        values = torch.cat(self.policy.buffer.values)
+        reward_len = len(self.policy.buffer.rewards)
+        advantage = torch.zeros(reward_len, dtype=torch.float32).to(self.device)
 
-        # normalization
-        rewards = torch.tensor(rewards, dtype=torch.float32).to(self.device)
-        print(f"mean rewards: {rewards.sum().item()}")
-        rewards_norm = (rewards - rewards.mean()) / (rewards.std() + 1e-7)
+        # # complex calculate way
+        # for t in tqdm(range(reward_len - 1)):
+        #     discount = 1
+        #     a_t = 0
+        #     for k in range(t, reward_len - 1):
+        #         a_t += discount * (self.policy.buffer.rewards[k] + self.gamma * values[k + 1] * (
+        #                 1 - int(self.policy.buffer.is_end[k])) - values[k])
+        #         discount *= self.gamma * self.gae_lambda
+        #     advantage[t] = a_t
 
-        # load states, actions and probs
-        old_states = torch.squeeze(torch.stack(self.policy_old.buffer.states, dim=0)).detach().to(self.device)
-        old_actions = torch.squeeze(torch.stack(self.policy_old.buffer.actions, dim=0)).detach().to(self.device)
-        old_logprobs = torch.squeeze(torch.stack(self.policy_old.buffer.logprobs, dim=0)).detach().to(self.device)
+        # easy way to calculate the advantage by the follow equation
+        # a_{t} = rewards_{t} + discount * values_{t+1} * (1-done_t) - values_{t} +  discount * gae_lambda * a_{t+1}
+        for i in range(reward_len - 2, -1, -1):
+            advantage[i] = self.policy.buffer.rewards[i] + self.gamma * values[i + 1] * (
+                    1 - int(self.policy.buffer.is_end[i])) - values[i] + self.gamma * self.gae_lambda * advantage[i + 1]
 
-        for i in range(self.K_epochs):
-            # the equation of PPO-clip (paper use the PPO-penalty, but I think it dose not a matter)
-            # get Q_value，probity and the entropy of distribution from main model
-            state_values, logprobs, dist_entropy = self.policy.evaluate(old_states, old_actions)
-            state_values = torch.squeeze(state_values)
-            ratios = torch.exp(logprobs - old_logprobs.detach())  # divide the probs
+        states = torch.stack(self.policy.buffer.states, dim=0).to(self.device)
+        old_probs = torch.stack(self.policy.buffer.logprobs, dim=0).to(self.device)
+        actions = torch.stack(self.policy.buffer.actions, dim=0).to(self.device)
 
-            advantages = rewards_norm - state_values.detach()
-            surr1 = ratios * advantages
-            surr2 = torch.clamp(ratios, 1 - self.eps_clip, 1 + self.eps_clip) * advantages
-            loss = -torch.min(surr1, surr2) + 0.5 * self.mse_loss(state_values, rewards) - 0.01 * dist_entropy
-            if i % 10 == 0:
-                print(f"PPO Loss {loss.mean().item()}")
-            self.optimizer.zero_grad()
-            loss.mean().backward()
-            self.optimizer.step()
-        self.policy_old.load_state_dict(self.policy.state_dict())
-        self.policy_old.buffer.clear()
-        return rewards.sum().item()
+        hidden = self.policy.fc(states)
+        dist = Categorical(F.softmax(self.policy.get_action(hidden), dim=-1))
+        critic_value = self.policy.get_lk(hidden)
+
+        critic_value = torch.squeeze(critic_value)
+
+        new_probs = dist.log_prob(actions)
+        prob_ratio = (new_probs - old_probs).exp()
+
+        weighted_probs = advantage * prob_ratio
+        weighted_clipped_probs = torch.clamp(prob_ratio, 1 - self.eps_clip, 1 + self.eps_clip) * advantage
+
+        actor_loss = -torch.min(weighted_probs, weighted_clipped_probs).mean()
+
+        returns = advantage + values
+        critic_loss = self.mse_loss(returns, critic_value)
+
+        cls_loss = self.ce_loss(res[train_index], labels[train_index])
+
+        loss = actor_loss + 0.5 * critic_loss + cls_loss
+        rewards = sum(self.policy.buffer.rewards).item()
+        print(f"PPO Loss: {loss} rewards: {rewards}")
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        self.policy.buffer.clear()
+
+        return rewards
 
     def forward(self, adj, x):
         res = self.policy(adj, x)
@@ -264,7 +278,7 @@ class GDPNet(embedder_single):
         start = time.time()
         rewards = []
 
-        for epoch in range(self.args.pretrain_epochs + self.args.nb_epochs):
+        for epoch in range(500, self.args.pretrain_epochs + self.args.nb_epochs):
             self.model.train()
             if epoch < self.args.pretrain_epochs:
                 self.model.update(graph_org, features, self.labels, pretrain=True, train_index=self.idx_train)
