@@ -48,27 +48,29 @@ def load_image_dataset(args=None):
 
 
 def load_single_graph(args=None, train_ratio=0.1, val_ratio=0.1):
-    if args.dataset in ['Cora', 'CiteSeer', 'PubMed', 'Photo', 'Computers']:
-        if args.dataset in ['Cora', 'CiteSeer', 'PubMed']:
+    if args.dataset in ['CiteSeer', 'PubMed', 'Photo', 'Computers']:
+        if args.dataset in ['CiteSeer', 'PubMed']:
             path = osp.join(osp.dirname(osp.realpath(__file__)), 'data/')
             dataset = Planetoid(path, args.dataset)
         elif args.dataset in ['Photo', 'Computers']:
             path = osp.join(osp.dirname(osp.realpath(__file__)), 'data/')
             dataset = Amazon(path, args.dataset, pre_transform=None)  # transform=T.ToSparseTensor(),
         data = dataset[0]
-        if args.dataset == 'Cora':
-            idx_train = data.train_mask
-            idx_val = data.val_mask
-            idx_val[:] = False
-            idx_val[range(200, 500)] = True
-            idx_test = data.test_mask
-            idx_test[:] = False
-            idx_test[range(500, 1500)] = True
-        else:
-            idx_train = data.train_mask
-            idx_val = data.val_mask
-            idx_test = data.test_mask
-
+        # if args.dataset == 'Cora':
+        #     idx_train = data.train_mask
+        #     idx_val = data.val_mask
+        #     idx_val[:] = False
+        #     idx_val[range(200, 500)] = True
+        #     idx_test = data.test_mask
+        #     idx_test[:] = False
+        #     idx_test[range(500, 1500)] = True
+        # else:
+        #     idx_train = data.train_mask
+        #     idx_val = data.val_mask
+        #     idx_test = data.test_mask
+        idx_train = data.train_mask
+        idx_val = data.val_mask
+        idx_test = data.test_mask
         i = torch.Tensor.long(data.edge_index)
         v = torch.FloatTensor(torch.ones([data.num_edges]))
         A_sp = torch.sparse.FloatTensor(i, v, torch.Size([data.num_nodes, data.num_nodes]))
@@ -78,7 +80,52 @@ def load_single_graph(args=None, train_ratio=0.1, val_ratio=0.1):
         A_I = A + I
         A_I_nomal = row_normalize(A_I)
         label = data.y
+    elif args.dataset in ['Cora']:
+        idx_features_labels = np.genfromtxt("{}{}.content".format("./utils/data/Cora/","cora"), dtype=np.dtype(str))
+        features = sp.csr_matrix(idx_features_labels[:, 1:-1], dtype=np.float32)
+        labels = encode_onehot(idx_features_labels[:, -1])
 
+        def normalize_features(mx):
+            """Row-normalize sparse matrix"""
+            rowsum = np.array(mx.sum(1))
+            r_inv = np.power(rowsum, -1).flatten()
+            r_inv[np.isinf(r_inv)] = 0.
+            r_mat_inv = sp.diags(r_inv)
+            mx = r_mat_inv.dot(mx)
+            return mx
+
+        # build graph
+        idx = np.array(idx_features_labels[:, 0], dtype=np.int32)
+        idx_map = {j: i for i, j in enumerate(idx)}
+        edges_unordered = np.genfromtxt("{}{}.cites".format("./utils/data/Cora/","cora"), dtype=np.int32)
+        edges = np.array(list(map(idx_map.get, edges_unordered.flatten())), dtype=np.int32).reshape(
+            edges_unordered.shape)
+        adj = sp.coo_matrix((np.ones(edges.shape[0]), (edges[:, 0], edges[:, 1])),
+                            shape=(labels.shape[0], labels.shape[0]), dtype=np.float32)
+
+        # build symmetric adjacency matrix
+        adj = adj + adj.T.multiply(adj.T > adj) - adj.multiply(adj.T > adj)
+
+        features = normalize_features(features)
+        A_I_nomal = normalize_adj(adj + sp.eye(adj.shape[0]))
+        A_nomal = normalize_adj(adj)
+        A =  adj.todense()
+
+        idx_train = range(140)
+        idx_val = range(200, 500)
+        idx_test = range(500, 1500)
+
+        A_I_nomal = torch.FloatTensor(np.array(A_I_nomal.todense()))
+        A_nomal = torch.FloatTensor(np.array(A_nomal.todense()))
+        A = torch.FloatTensor(np.array(A))
+
+        features = torch.FloatTensor(np.array(features.todense()))
+        labels = torch.LongTensor(np.where(labels)[1])
+
+        idx_train = torch.LongTensor(idx_train)
+        idx_val = torch.LongTensor(idx_val)
+        idx_test = torch.LongTensor(idx_test)
+        return [A_I_nomal, A_nomal, A], features, labels, idx_train, idx_val, idx_test
     else:
         path = osp.join(osp.dirname(osp.realpath(__file__)), 'data/')
         dataset = PygNodePropPredDataset(name=args.dataset, root=path)
@@ -124,6 +171,50 @@ def load_single_graph(args=None, train_ratio=0.1, val_ratio=0.1):
 
     return [A_I_nomal, A_nomal, A], data.x, label, idx_train, idx_val, idx_test
 
+
+def load_cora(path="./data/Cora/", dataset="cora"):
+    """Load citation network dataset (cora only for now)"""
+    print('Loading {} dataset...'.format(dataset))
+
+    idx_features_labels = np.genfromtxt("{}{}.content".format(path, dataset), dtype=np.dtype(str))
+    features = sp.csr_matrix(idx_features_labels[:, 1:-1], dtype=np.float32)
+    labels = encode_onehot(idx_features_labels[:, -1])
+
+    def normalize_features(mx):
+        """Row-normalize sparse matrix"""
+        rowsum = np.array(mx.sum(1))
+        r_inv = np.power(rowsum, -1).flatten()
+        r_inv[np.isinf(r_inv)] = 0.
+        r_mat_inv = sp.diags(r_inv)
+        mx = r_mat_inv.dot(mx)
+        return mx
+
+    # build graph
+    idx = np.array(idx_features_labels[:, 0], dtype=np.int32)
+    idx_map = {j: i for i, j in enumerate(idx)}
+    edges_unordered = np.genfromtxt("{}{}.cites".format(path, dataset), dtype=np.int32)
+    edges = np.array(list(map(idx_map.get, edges_unordered.flatten())), dtype=np.int32).reshape(edges_unordered.shape)
+    adj = sp.coo_matrix((np.ones(edges.shape[0]), (edges[:, 0], edges[:, 1])), shape=(labels.shape[0], labels.shape[0]), dtype=np.float32)
+
+    # build symmetric adjacency matrix
+    adj = adj + adj.T.multiply(adj.T > adj) - adj.multiply(adj.T > adj)
+
+    features = normalize_features(features)
+    adj = normalize_adj(adj + sp.eye(adj.shape[0]))
+
+    idx_train = range(140)
+    idx_val = range(200, 500)
+    idx_test = range(500, 1500)
+
+    adj = torch.FloatTensor(np.array(adj.todense()))
+    features = torch.FloatTensor(np.array(features.todense()))
+    labels = torch.LongTensor(np.where(labels)[1])
+
+    idx_train = torch.LongTensor(idx_train)
+    idx_val = torch.LongTensor(idx_val)
+    idx_test = torch.LongTensor(idx_test)
+
+    return adj, features, labels, idx_train, idx_val, idx_test
 
 def load_acm_mat(sc=3):
     data = sio.loadmat('data/acm.mat')
