@@ -55,7 +55,7 @@ def main_one(config, checkpoint_dir=None):
         print("Change TABLE_NAME to create a new table")
     ################END|SQL|###############
 
-    current_args.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    current_args.device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
     ACC_seed = []
     Time_seed = []
     for seed in range(2020, 2024):
@@ -96,13 +96,13 @@ def main(args):
     # param set
     ################STA|set tune param|###############
     config = {
-        'nb_epochs': 300,
-        'lr': 0.05,
-        'wd': 2e-5,
+        'nb_epochs': 5000,
+        'lr': 0.0005,
+        'wd': 5e-4,
         'test_epo': 50,
         'test_lr': 0.01,
-        'cfg': [64, 36],
-        'random_aug_feature': 0.1,
+        'cfg': [256],
+        'random_aug_feature': 0.2,
         'random_aug_edge': 0.0,
         'alpha': 1,
         'beta': 0.1,
@@ -113,8 +113,8 @@ def main(args):
 
 
 if __name__ == '__main__':
-    task = 'Rein'  # choice:Semi Unsup Sup Rein Noise ImgCls
-    method = 'GDP'  # choice: Gcn ViG GDP
+    task = 'Semi'  # choice:Semi Unsup Sup Rein Noise ImgCls
+    method = 'SelfCons'  # choice: Gcn ViG GDP GcnMixup SelfCons
     dataset = 'Cora'  # choice:Cora CiteSeer PubMed CIFAR10
     args = parse_args(task, method, dataset)
     torch.backends.cudnn.deterministic = True

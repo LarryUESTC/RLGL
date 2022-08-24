@@ -60,6 +60,28 @@ class Semi_GcnMixup(Semi):
         self.args.__setattr__('method', 'SEMI_GCNMIXUP')
         self.args.__setattr__('lr', 0.05)
 
+class Semi_SelfCons(Semi):
+    def __init__(self, method, dataset):
+        super(Semi_SelfCons, self).__init__(method, dataset)
+        ################STA|add new params here|###############
+        self.parser.add_argument('--nheads', type=int, default=8, help='transformer multi-heads')
+        self.parser.add_argument('--Trans_layer_num', type=int, default=2, help='transformer layer number')
+        self.parser.add_argument('--beta', type=int, default=0.1, help='Ncontrastive loss params')
+        self.parser.add_argument('--tau', type=int, default=1.0, help='tau for Ncontrastive')
+        ################END|add new params here|###############
+        self.args, _ = self.parser.parse_known_args()
+
+        ################STA|replace params here|###############
+        self.replace()
+        ################END|replace params here|###############
+
+    def replace(self):
+        super(Semi_SelfCons, self).replace()
+        self.args.__setattr__('method', 'SEMI_SELFCONS')
+        self.args.__setattr__('lr', 0.0005)
+        self.args.__setattr__('patience', 300)
+
+
 
 class Semi_Gcn_Cora(Semi_Gcn):
     def __init__(self, method, dataset):
@@ -520,7 +542,7 @@ class Rein_GDP_Cora(Rein):
     def replace(self):
         super(Rein_GDP_Cora, self).replace()
         self.args.batch_size = 256
-        self.args.feature_dimension = 128
+        self.args.feature_dimension = 32
         self.args.discount_factor = 0.95
         self.args.pretrain_epochs = 500
         self.args.__setattr__('method', 'GDP')
@@ -589,6 +611,7 @@ class ImgCls_ViG_CIFA10(ImgCls_ViG):
 params_key = {
     'Semi': Semi,
     'Semi_Gcn': Semi_Gcn,
+    'Semi_SelfCons': Semi_SelfCons,
     'Semi_Gcn_Cora': Semi_Gcn_Cora,
     'Unsup': Unsup,
     'Unsup_E2sgrl': Unsup_E2sgrl,
