@@ -12,7 +12,7 @@ class AvgReadout(nn.Module):
         super(AvgReadout, self).__init__()
 
     def forward(self, seq):
-            return torch.mean(seq, 0) # 计算各特征在所有结点的均值
+        return torch.mean(seq, 0)  # 计算各特征在所有结点的均值
 
 
 class Discriminator(nn.Module):
@@ -58,6 +58,7 @@ def act_layer(act, inplace=False, neg_slope=0.2, n_prelu=1):
         raise NotImplementedError('activation layer [%s] is not found' % act)
     return layer
 
+
 class GraphConvolution(nn.Module):
     """
     A Graph Convolution Layer (GCN)
@@ -82,15 +83,16 @@ class GraphConvolution(nn.Module):
 
         return output
 
+
 def GNN_layer(GNN, d_in, d_out):
     if GNN == 'GCN':
         layer = GraphConv(d_in, d_out)
     elif GNN == 'GAT':
-        layer = GATConv(d_in, d_out, num_heads = 5)
+        layer = GATConv(d_in, d_out, num_heads=5)
     elif GNN == 'SAGE':
         layer = SAGEConv(d_in, d_out, 'mean')
     elif GNN == 'GIN':
-        layer = GINConv(torch.nn.Linear(d_in, d_out), 'max', learn_eps = True)
+        layer = GINConv(torch.nn.Linear(d_in, d_out), 'max', learn_eps=True)
     elif GNN == 'GCN_geometric':
         layer = GCNConv(d_in, d_out)
     elif GNN == 'GCN_org':
@@ -99,16 +101,17 @@ def GNN_layer(GNN, d_in, d_out):
         raise NotImplementedError('activation layer [%s] is not found' % GNN)
     return layer
 
-def make_mlplayers(in_channel, cfg, batch_norm=False, out_layer =None):
+
+def make_mlplayers(in_channel, cfg, batch_norm=False, out_layer=None):
     layers = []
     in_channels = in_channel
-    layer_num  = len(cfg)
+    layer_num = len(cfg)
     for i, v in enumerate(cfg):
-        out_channels =  v
+        out_channels = v
         mlp = nn.Linear(in_channels, out_channels)
         if batch_norm:
             layers += [mlp, nn.BatchNorm1d(out_channels, affine=False), nn.ReLU()]
-        elif i != (layer_num-1):
+        elif i != (layer_num - 1):
             layers += [mlp, nn.ReLU()]
             # result = nn.Sequential(*layers)
         else:
@@ -117,10 +120,11 @@ def make_mlplayers(in_channel, cfg, batch_norm=False, out_layer =None):
     if out_layer != None:
         mlp = nn.Linear(in_channels, out_layer)
         layers += [mlp]
-    return nn.Sequential(*layers)#, result
+    return nn.Sequential(*layers)  # , result
+
 
 class SUGRL_Fast(nn.Module):
-    def __init__(self, n_in ,cfg = None, batch_norm=False, act='gelu', dropout = 0.0, final_mlp = 0):
+    def __init__(self, n_in, cfg=None, batch_norm=False, act='gelu', dropout=0.0, final_mlp=0):
         super(SUGRL_Fast, self).__init__()
         # self.MLP = make_mlplayers(n_in, cfg, batch_norm=False, act=None, dropout = 0, out_layer =None)
         # self.backbone = make_GCNlayers(n_in, cfg, batch_norm=False, act='gelu', dropout = dropout, out_layer =cfg[-1])
@@ -145,7 +149,7 @@ class SUGRL_Fast(nn.Module):
                 act_layers.append(act_layer(act))
             if batch_norm:
                 bat_layers.append(nn.BatchNorm1d(out_channels, affine=False))
-            if dropout>0:
+            if dropout > 0:
                 dop_layers.append(nn.Dropout(dropout))
             in_channels = out_channels
 
@@ -182,7 +186,6 @@ class SUGRL_Fast(nn.Module):
             embeding_a = X_a
         return embeding_a.detach()
 
-
     def forward(self, A_a, X_a, A_b, X_b):
         X_a = F.dropout(X_a, 0.2)
         X_b = F.dropout(X_b, 0.2)
@@ -211,8 +214,9 @@ class SUGRL_Fast(nn.Module):
 
         return embeding_a, embeding_b
 
+
 class GNN_Model(nn.Module):
-    def __init__(self, n_in ,cfg = None, batch_norm=False, act='relu', gnn='GCN', dropout = 0.0, final_mlp = 0):
+    def __init__(self, n_in, cfg=None, batch_norm=False, act='relu', gnn='GCN', dropout=0.0, final_mlp=0):
         super(GNN_Model, self).__init__()
 
         self.dropout = dropout
@@ -261,7 +265,6 @@ class GNN_Model(nn.Module):
                 except:
                     pass
 
-
     def get_embedding(self, A_a, X_a):
         for i in range(self.layer_num):
             X_a = self.GCN_layers[i](A_a, X_a)
@@ -276,7 +279,6 @@ class GNN_Model(nn.Module):
             embeding_a = X_a
         return embeding_a.detach()
 
-
     def forward(self, A_a, X_a):
         # X_a = F.dropout(X_a, 0.2)
         # X_a = F.dropout(X_a, self.dropout, training=self.training)
@@ -285,11 +287,11 @@ class GNN_Model(nn.Module):
             X_a = self.GCN_layers[i](A_a, X_a)
             if self.gnn == "GAT":
                 X_a = torch.mean(X_a, dim=1)
-            if self.act and i != self.layer_num-1:
+            if self.act and i != self.layer_num - 1:
                 X_a = self.act_layers[i](X_a)
-            if self.bat and i != self.layer_num-1:
+            if self.bat and i != self.layer_num - 1:
                 X_a = self.bat_layers[i](X_a)
-            if self.dropout > 0 and i != self.layer_num-1:
+            if self.dropout > 0 and i != self.layer_num - 1:
                 X_a = F.dropout(X_a, self.dropout, training=self.training)
         if self.final_mlp:
             embeding_a = self.mlp(X_a)
@@ -305,6 +307,7 @@ class GNN_Model(nn.Module):
         # embeding_a = (embeding_a - embeding_a.mean(0)) / embeding_a.std(0)
 
         return embeding_a
+
 
 class Action_Net(nn.Module):
     def __init__(self, n_in, cfg=None, batch_norm=False, act='relu', gnn='GCN', dropout=0.0, final_mlp=0):
@@ -371,7 +374,8 @@ class Action_Net(nn.Module):
         else:
             self.embedding = X_a
 
-        return  F.log_softmax(self.embedding, dim=1)
+        return F.log_softmax(self.embedding, dim=1)
+
 
 class Env_Net(torch.nn.Module):
     def __init__(self, max_layer, nin, cfg):
@@ -387,14 +391,15 @@ class Env_Net(torch.nn.Module):
     def forward(self, action, x, adj):
 
         x = F.relu(self.conv1(adj, x))
-        for i in range(action-2):
+        for i in range(action - 2):
             x = F.relu(self.hidden[i](adj, x))
             x = F.dropout(x, training=self.training)
         self.embedding = self.conv2(adj, x)
         return F.log_softmax(self.embedding, dim=1)
 
+
 class Env_Net_RLG(nn.Module):
-    def __init__(self, n_in ,cfg = None, batch_norm=False, act='relu', gnn='GCN_org', dropout = 0.0, final_mlp = 0):
+    def __init__(self, n_in, cfg=None, batch_norm=False, act='relu', gnn='GCN_org', dropout=0.0, final_mlp=0):
         super(Env_Net_RLG, self).__init__()
         # self.MLP = make_mlplayers(n_in, cfg, batch_norm=False, act=None, dropout = 0, out_layer =None)
         # self.backbone = make_GCNlayers(n_in, cfg, batch_norm=False, act='gelu', dropout = dropout, out_layer =cfg[-1])
@@ -445,7 +450,6 @@ class Env_Net_RLG(nn.Module):
                 except:
                     pass
 
-
     def get_embedding(self, A_a, X_a):
         for i in range(self.layer_num):
             X_a = self.GCN_layers[i](A_a, X_a)
@@ -460,7 +464,6 @@ class Env_Net_RLG(nn.Module):
             embeding_a = X_a
         return embeding_a.detach()
 
-
     def forward(self, A_a, X_a):
         # X_a = F.dropout(X_a, 0.2)
         # X_a = F.dropout(X_a, self.dropout, training=self.training)
@@ -469,11 +472,11 @@ class Env_Net_RLG(nn.Module):
             X_a = self.GCN_layers[i](A_a, X_a)
             if self.gnn == "GAT":
                 X_a = torch.mean(X_a, dim=1)
-            if self.act and i != self.layer_num-1:
+            if self.act and i != self.layer_num - 1:
                 X_a = self.act_layers[i](X_a)
-            if self.bat and i != self.layer_num-1:
+            if self.bat and i != self.layer_num - 1:
                 X_a = self.bat_layers[i](X_a)
-            if self.dropout > 0 and i != self.layer_num-1:
+            if self.dropout > 0 and i != self.layer_num - 1:
                 X_a = F.dropout(X_a, self.dropout, training=self.training)
         if self.final_mlp:
             embeding_a = self.mlp(X_a)
@@ -490,3 +493,117 @@ class Env_Net_RLG(nn.Module):
 
         return embeding_a
 
+
+class Transformer_Norm(nn.Module):
+    """
+    using to perform the Normalization in transformer-base encoder
+    default using the -1 dim
+    in_features: normalization dimension
+    """
+
+    def __init__(self, in_features, eps=1e-6):
+        super(Transformer_Norm, self).__init__()
+        self.size = in_features
+
+        self.alpha = nn.Parameter(torch.ones(self.size))
+        self.bias = nn.Parameter(torch.zeros(self.size))
+        self.eps = eps
+
+    def forward(self, x):  # standard normalization
+        norm = self.alpha * (x - x.mean(dim=-1, keepdim=True)) / (x.std(dim=-1, keepdim=True) + self.eps) + self.bias
+        return norm
+
+
+class Transformer_Multi_Head_Attention(nn.Module):
+    def __init__(self, heads, in_features, dropout=0.1):
+        super().__init__()
+
+        self.in_features = in_features
+        self.d_k = in_features // heads
+        self.h = heads
+
+        self.q_linear = nn.Linear(in_features, in_features)
+        self.v_linear = nn.Linear(in_features, in_features)
+        self.k_linear = nn.Linear(in_features, in_features)
+
+        self.dropout = nn.Dropout(dropout)
+        self.out = nn.Linear(in_features, in_features)
+
+    def forward(self, q, k, v, mask=None):
+        bs = q.size(0)
+
+        # perform linear operation and split into N heads 分成4个头
+        k = self.k_linear(k).view(bs, -1, self.h, self.d_k)
+        q = self.q_linear(q).view(bs, -1, self.h, self.d_k)
+        v = self.v_linear(v).view(bs, -1, self.h, self.d_k)
+
+        # transpose to get dimensions bs * N * sl * in_features
+        k = k.transpose(1, 2)
+        q = q.transpose(1, 2)
+        v = v.transpose(1, 2)
+
+        # calculate attention using function we will define next, Q x K.T x V
+        # scores = attention(q, k, v, self.d_k, mask, self.dropout)
+        scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.d_k)
+        if mask is not None:
+            mask = mask.unsqueeze(1)
+            scores = scores.mask_fill(mask == 0, -1e9)
+        scores = F.softmax(scores, dim=-1)
+        if self.dropout is not None:
+            scores = self.dropout(scores)
+        scores = torch.matmul(scores, v)
+        # concatenate heads and put through final linear layer
+        concat = scores.transpose(1, 2).contiguous().view(bs, -1, self.in_features)
+        output = self.out(concat)
+        return output
+
+
+class Transformer_FeedForward(nn.Module):
+    def __init__(self, in_features, feed_features=2048, dropout=0.1):
+        super().__init__()
+
+        # We set feed_features as a default to 2048
+        self.linear_1 = nn.Linear(in_features, feed_features)
+        self.dropout = nn.Dropout(dropout)
+        self.linear_2 = nn.Linear(feed_features, in_features)
+
+    def forward(self, x):
+        x = self.dropout(F.relu(self.linear_1(x)))
+        x = self.linear_2(x)
+        return x
+
+
+class Transformer_Based_EncoderLayer(nn.Module):
+    def __init__(self, in_features, heads, dropout=0.01):
+        super(Transformer_Based_EncoderLayer, self).__init__()
+        self.norm_1 = Transformer_Norm(in_features)
+        self.norm_2 = Transformer_Norm(in_features)
+        self.attn = Transformer_Multi_Head_Attention(in_features, dropout=dropout)
+        self.ff = Transformer_FeedForward(in_features, dropout=dropout)
+        self.dropout_1 = nn.Dropout(dropout)
+        self.dropout_2 = nn.Dropout(dropout)
+
+    def forward(self, x, mask):
+        x2 = self.norm_1(x)
+        x = x + self.dropout_1(self.attn(x2, x2, x2, mask))
+        x2 = self.norm_2(x)
+        x = x + self.dropout_2(self.ff(x2))
+        return x
+
+
+class Transformer_Based_Encoder(nn.Module):
+    def __init__(self, cfg, in_features, num_layers, heads, dropout):
+        super().__init__()
+        self.num_layers = num_layers
+        self.opt = cfg
+        self.embed_en = nn.Linear(self.opt.predicate_MAX_padding, in_features)
+        self.layers = nn.ModuleList(
+            [Transformer_Based_EncoderLayer(in_features, heads, dropout) for _ in range(self.num_layers)])
+        self.norm = Transformer_Norm(in_features)
+
+    def forward(self, src, mask):
+        x = self.embed_en(src)
+        # x = self.pe(x)
+        for i in range(self.num_layers):
+            x = self.layers[i](x, mask)
+        return self.norm(x)
