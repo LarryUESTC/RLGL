@@ -68,8 +68,8 @@ def get_2d_sincos_pos_embed_from_grid(embed_dim, grid):
 
 def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
     """
-    这个函数的操作理论依据是transformer中的Relative Position Embedding
-    具体可以参考这个链接：https://zhuanlan.zhihu.com/p/105001610
+    according to Relative Position Embedding in transformer
+    link：https://zhuanlan.zhihu.com/p/105001610
     embed_dim: output dimension for each position
     pos: a list of positions to be encoded: size (M,)
     out: (M, D)
@@ -80,9 +80,7 @@ def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
     omega = 1. / 10000 ** omega  # (D/2,)
 
     pos = pos.reshape(-1)  # (M,)
-    # 算向量外积，pos的坐标i，对应值vi，omega的坐标j，对应值vj，结果矩阵中(i,j)位置的值是vi*vj
     out = np.einsum('m,d->md', pos, omega)  # (M, D/2), outer product
-    # 分别计算sin和cos，并且拼接在一起
     emb_sin = np.sin(out)  # (M, D/2)
     emb_cos = np.cos(out)  # (M, D/2)
 

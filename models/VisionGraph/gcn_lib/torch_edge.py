@@ -15,7 +15,7 @@ def pairwise_distance(x):
         pairwise distance: (batch_size, num_points, num_points)
     """
     with torch.no_grad():
-        x_inner = -2 * torch.matmul(x, x.transpose(2, 1))  # 矩阵乘法，得到结果(B,N,N)
+        x_inner = -2 * torch.matmul(x, x.transpose(2, 1))
         x_square = torch.sum(torch.mul(x, x), dim=-1, keepdim=True)  # (B,N,1)
         return x_square + x_inner + x_square.transpose(2, 1)
 
@@ -60,8 +60,8 @@ def dense_knn_matrix(x, k=16, relative_pos=None):
         nearest neighbors: (batch_size, num_points, k) (batch_size, num_points, k)
     """
     with torch.no_grad():
-        x = x.transpose(2, 1).squeeze(-1)  # 在这两个维度进行转置
-        batch_size, n_points, n_dims = x.shape  # batch数，节点数，特征维度
+        x = x.transpose(2, 1).squeeze(-1)
+        batch_size, n_points, n_dims = x.shape
         ### memory efficient implementation ###
         n_part = 10000
         if n_points > n_part:
@@ -77,10 +77,10 @@ def dense_knn_matrix(x, k=16, relative_pos=None):
                 nn_idx_list += [nn_idx_part]
             nn_idx = torch.cat(nn_idx_list, dim=1)
         else:
-            dist = pairwise_distance(x.detach())  # 算了个距离（B，N，N）
+            dist = pairwise_distance(x.detach())  # B，N，N）
             if relative_pos is not None:
                 dist += relative_pos  # relative_pos：（1,N,N）
-            _, nn_idx = torch.topk(-dist, k=k)  # 值，索引
+            _, nn_idx = torch.topk(-dist, k=k)
         ######
         center_idx = torch.arange(0, n_points, device=x.device).repeat(batch_size, k, 1).transpose(2, 1)
     return torch.stack((nn_idx, center_idx), dim=0)
@@ -157,6 +157,6 @@ class DenseDilatedKnnGraph(nn.Module):
             #### normalize
             x = F.normalize(x, p=2.0, dim=1)
             ####
-            # 2, N, N, k（整不会了），一个是nn_idx，一个是center_idx
+            # 2, N, N, k
             edge_index = dense_knn_matrix(x, self.k * self.dilation, relative_pos)
-        return self._dilated(edge_index)  # 实现dilation（KNN的K个隔dilation个空取一个）
+        return self._dilated(edge_index)

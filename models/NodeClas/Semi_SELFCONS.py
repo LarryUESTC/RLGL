@@ -31,7 +31,7 @@ def get_feature_dis(x):
     x_dis(i,j):   item means the similarity between x(i) and x(j).
     """
     x_dis = x@x.T
-    mask = torch.eye(x_dis.shape[0]).cuda()
+    mask = torch.eye(x_dis.shape[0]).cuda(3)
     x_sum = torch.sum(x**2, 1).reshape(-1, 1)
     x_sum = torch.sqrt(x_sum).reshape(-1, 1)
     x_sum = x_sum @ x_sum.T
@@ -309,7 +309,7 @@ class SELFCONS(embedder_single):
             loss_Ncontrast = Ncontrast(x_dis, adj_label, tau=self.args.tau)
             loss_Ncontrast_1 = Ncontrast(x_dis_1, adj_label, tau=self.args.tau)
 
-            loss_cls = F.cross_entropy(train_embs, train_lbls) + loss_Ncontrast
+            loss_cls = F.cross_entropy(train_embs, train_lbls)
             loss = loss_cls + loss_Ncontrast * self.args.beta
 
             loss.backward()

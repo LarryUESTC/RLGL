@@ -17,7 +17,7 @@ class MRConv2d(nn.Module):
 
     def __init__(self, in_channels, out_channels, act='relu', norm=None, bias=True):
         super(MRConv2d, self).__init__()
-        # conv+bn+relu，数量为len(第一个参数)-1，是一个sequential
+        # conv+bn+relu
         self.nn = BasicConv([in_channels * 2, out_channels], act, norm, bias)
 
     def forward(self, x, edge_index, y=None):
@@ -26,7 +26,7 @@ class MRConv2d(nn.Module):
             x_j = batched_index_select(y, edge_index[0])
         else:
             x_j = batched_index_select(x, edge_index[0])  # B，D，N，K
-        x_j, _ = torch.max(x_j - x_i, -1, keepdim=True)  # 最后一个维度上的取最大值，保留维度，返回值为（B，D，N，1）
+        x_j, _ = torch.max(x_j - x_i, -1, keepdim=True)  # （B，D，N，1）
         b, c, n, _ = x.shape
         x = torch.cat([x.unsqueeze(2), x_j.unsqueeze(2)], dim=2).reshape(b, 2 * c, n, _)  # B，2D，N，1
         return self.nn(x)
@@ -132,7 +132,7 @@ class DyGraphConv2d(GraphConv2d):
             y = F.avg_pool2d(x, self.r, self.r)
             y = y.reshape(B, C, -1, 1).contiguous()
         x = x.reshape(B, C, -1, 1).contiguous()
-        edge_index = self.dilated_knn_graph(x, y, relative_pos)  # KNN获取前K个邻居，然后用dilation扩张
+        edge_index = self.dilated_knn_graph(x, y, relative_pos)
         x = super(DyGraphConv2d, self).forward(x, edge_index, y)
         return x.reshape(B, -1, H, W).contiguous()
 

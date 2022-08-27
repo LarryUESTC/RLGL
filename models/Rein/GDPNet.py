@@ -7,6 +7,8 @@ from torch import nn
 from torch.nn import functional as F
 from torch.distributions import Categorical
 from models.Layers import act_layer
+from models.NodeClas.Semi_SELFCONS import GAT_selfCon_Trans
+from models.Rein.RLG import KDloss_0
 from evaluate import accuracy
 import setproctitle
 import matplotlib.pyplot as plt
@@ -39,6 +41,37 @@ class RecordeBuffer:
 def fc(x, lb):
     # TODO: the fc function in Eq.5
     return x.argmax(dim=-1).eq(lb).sum()
+
+
+def get_A_r(adj, r):
+    adj_label = adj
+    for i in range(r - 1):
+        adj_label = adj_label @ adj
+
+    return adj_label
+
+
+def get_feature_dis(x):
+    """
+    x :           batch_size x nhid
+    x_dis(i,j):   item means the similarity between x(i) and x(j).
+    """
+    x_dis = x @ x.T
+    mask = torch.eye(x_dis.shape[0]).cuda(3)
+    x_sum = torch.sum(x ** 2, 1).reshape(-1, 1)
+    x_sum = torch.sqrt(x_sum).reshape(-1, 1)
+    x_sum = x_sum @ x_sum.T
+    x_dis = x_dis * (x_sum ** (-1))
+    x_dis = (1 - mask) * x_dis
+    return x_dis
+
+
+def Ncontrast(x_dis, adj_label, tau=1.):
+    x_dis = torch.exp(tau * x_dis)
+    x_dis_sum = torch.sum(x_dis, 1)
+    x_dis_sum_pos = torch.sum(x_dis * adj_label, 1)
+    loss = -torch.log(x_dis_sum_pos * (x_dis_sum ** (-1)) + 1e-8).mean()
+    return loss
 
 
 class Policy(nn.Module):
@@ -117,23 +150,34 @@ class Policy(nn.Module):
                     at_dist = Categorical(at_distribution)
                     at = at_dist.sample()
 
-                    # calculate the reward
                     hv = [feature_origin[u] for u in signal_neighbor_i]
-                    if labels is not None:
-                        rt = self.get_reward(feature_origin[i], feature_origin[idx[ut_index]], hv, labels[i])
-                        self.buffer.actions.append(at.detach())
-                        self.buffer.states.append(s[ut_index].detach())
-                        self.buffer.logprobs.append(at_dist.log_prob(at).detach())
-                        self.buffer.rewards.append(rt)
-                        self.buffer.is_end.append(False)
-                        self.buffer.values.append(lk[ut_index].detach())
-                    flag = True
+                    # if labels is not None:
+                    #     rt = self.get_reward(feature_origin[i], feature_origin[idx[ut_index]], hv, labels[i])
+                    #     self.buffer.actions.append(at.detach())
+                    #     self.buffer.states.append(s[ut_index].detach())
+                    #     self.buffer.logprobs.append(at_dist.log_prob(at).detach())
+                    #     self.buffer.rewards.append(rt.detach())
+                    #     self.buffer.is_end.append(False)
+                    #     self.buffer.values.append(lk[ut_index].detach())
+                    # flag = True
 
                     if at == 1:
                         signal_neighbor_i.append(idx[ut_index])
                         hv.append(feature_origin[idx[ut_index]])
                     # update the representation
                     hv.append(feature_origin[i])
+                    if labels is not None:
+                        tmp = [i, *signal_neighbor_i]
+                        # rt = self.get_reward1(torch.stack(hv, dim=0), labels[i])  # KL-Loss
+                        rt = self.get_reward2(torch.stack(hv, dim=0), adj[tmp][:, tmp])  # Nconstract Loss
+                        self.buffer.actions.append(at.detach())
+                        self.buffer.states.append(s[ut_index].detach())
+                        self.buffer.logprobs.append(at_dist.log_prob(at).detach())
+                        self.buffer.rewards.append(rt.detach())
+                        self.buffer.is_end.append(False)
+                        self.buffer.values.append(lk[ut_index].detach())
+                    flag = True
+                    # calculate the reward
                     hv = torch.stack(hv, dim=0)
                     hv = self.get_embedding(hv.mean(dim=0))
                     hut = self.get_embedding(feature_origin[idx[ut_index]])
@@ -155,6 +199,19 @@ class Policy(nn.Module):
         else:
             r_neighbor = fc(self.get_rt(self.get_embedding(xv)), lb)
         return r_xv / r_neighbor if r_neighbor.item() != 0 else r_xv
+
+    def get_reward1(self, x, label):
+        embeds = self.get_rt(self.get_embedding(x))
+        reward = -KDloss_0(embeds, label.unsqueeze(dim=0))
+        return reward
+
+    def get_reward2(self, x, adj):
+        if len(x.shape) < 2 or (len(x.shape) >= 2 and x.shape[0] == 1):
+            return torch.tensor(-100)
+        x_dis = get_feature_dis(self.get_embedding(x))
+        label_adj = get_A_r(adj, 4)
+        reward = -Ncontrast(x_dis, label_adj)
+        return reward
 
     def evaluate(self, state, action):
         hidden = self.fc(state)
@@ -213,38 +270,38 @@ class GDP_Module(nn.Module):
         # a_{t} = rewards_{t} + discount * values_{t+1} * (1-done_t) - values_{t} +  discount * gae_lambda * a_{t+1}
         for i in range(reward_len - 2, -1, -1):
             advantage[i] = self.policy.buffer.rewards[i] + self.gamma * values[i + 1] * (
-                    1 - int(self.policy.buffer.is_end[i])) - values[i] + self.gamma * self.gae_lambda * advantage[i + 1]
+                    1 - int(self.policy.buffer.is_end[i])) - values[i] + self.gamma * self.gae_lambda * advantage[
+                               i + 1] * (1 - int(self.policy.buffer.is_end[i]))
 
         states = torch.stack(self.policy.buffer.states, dim=0).to(self.device)
         old_probs = torch.stack(self.policy.buffer.logprobs, dim=0).to(self.device)
         actions = torch.stack(self.policy.buffer.actions, dim=0).to(self.device)
 
-        hidden = self.policy.fc(states)
-        dist = Categorical(F.softmax(self.policy.get_action(hidden), dim=-1))
-        critic_value = self.policy.get_lk(hidden)
+        for i in range(self.K_epoch):
+            hidden = self.policy.fc(states)
+            dist = Categorical(F.softmax(self.policy.get_action(hidden), dim=-1))
+            critic_value = self.policy.get_lk(hidden)
 
-        critic_value = torch.squeeze(critic_value)
+            critic_value = torch.squeeze(critic_value)
 
-        new_probs = dist.log_prob(actions)
-        prob_ratio = (new_probs - old_probs).exp()
+            new_probs = dist.log_prob(actions)
+            prob_ratio = (new_probs - old_probs).exp()
 
-        weighted_probs = advantage * prob_ratio
-        weighted_clipped_probs = torch.clamp(prob_ratio, 1 - self.eps_clip, 1 + self.eps_clip) * advantage
+            weighted_probs = advantage * prob_ratio
+            weighted_clipped_probs = torch.clamp(prob_ratio, 1 - self.eps_clip, 1 + self.eps_clip) * advantage
 
-        actor_loss = -torch.min(weighted_probs, weighted_clipped_probs).mean()
+            actor_loss = -torch.min(weighted_probs, weighted_clipped_probs).mean()
 
-        returns = advantage + values
-        critic_loss = self.mse_loss(returns, critic_value)
+            returns = advantage + values
+            critic_loss = self.mse_loss(returns, critic_value)
 
-        cls_loss = self.ce_loss(res[train_index], labels[train_index])
+            loss = actor_loss + 0.5 * critic_loss
 
-        loss = actor_loss + 0.5 * critic_loss + cls_loss
+            print(f"RL Epoch: {i} PPO Loss: {loss}  node_num: {nodes}")
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
         rewards = sum(self.policy.buffer.rewards).item()
-        print(f"PPO Loss: {loss} rewards: {rewards} node_num: {nodes}")
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
-
         self.policy.buffer.clear()
 
         return rewards
@@ -256,9 +313,11 @@ class GDP_Module(nn.Module):
 
 class GDPNet(embedder_single):
     def __init__(self, args):
-        args.device = 'cuda:1'
+
+        # args.device = 'cuda:3'
         super(GDPNet, self).__init__(args)
         self.args = args
+        self.fake_labels = None
         nb_classes = (self.labels.max() - self.labels.min() + 1).item()
         self.model = GDP_Module(self.features.shape[-1], self.args.cfg, self.args.feature_dimension, act='relu',
                                 n_classes=nb_classes, device=self.args.device).to(self.args.device)
@@ -266,6 +325,7 @@ class GDPNet(embedder_single):
     def training(self):
         features = self.features.to(self.args.device)
         graph_org = self.adj_list[-1].to(self.args.device)
+        graph_org_torch = self.adj_list[0].to(self.args.device)
         self.labels = self.labels.to(self.args.device)
         print("Started training...")
         train_lbls = self.labels[self.idx_train]
@@ -279,23 +339,57 @@ class GDPNet(embedder_single):
 
         start = time.time()
         rewards = []
+        acces = []
 
+        pre_model = GAT_selfCon_Trans(features.shape[-1], cfg=[256, 7], final_mlp=0, dropout=0.2, nheads=8,
+                                      Trans_layer_num=2).to(self.args.device)
+        pre_optimizer = torch.optim.Adam(pre_model.parameters(), lr=0.0005, weight_decay=0.0005)
+        adj_label = get_A_r(graph_org_torch, 4)
         for epoch in range(self.args.pretrain_epochs + self.args.nb_epochs):
             self.model.train()
             if epoch < self.args.pretrain_epochs:
+                # Nconstruct Pretrain
                 self.model.update(graph_org, features, self.labels, pretrain=True, train_index=self.idx_train)
+
+                # KL-pretrain
+                # pre_optimizer.zero_grad()
+                # pre_model.train()
+                # embeds, x_dis, _ = pre_model(features)
+                # train_embs = embeds[self.idx_train]
+                # loss_Ncontrast = Ncontrast(x_dis, adj_label, tau=1.0)
+                # loss_cls = F.cross_entropy(train_embs, train_lbls)
+                # loss = loss_cls + loss_Ncontrast * 0.2
+                # print(f"Pretrain Epoch: {epoch} Pretrain Loss: {loss.item()}")
+                # loss.backward()
+                # pre_optimizer.step()
+                # if epoch == self.args.pretrain_epochs - 1:
+                #     self.model.eval()
+                #     self.fake_labels = pre_model(features)[0]
+                #     test_acc = accuracy(self.fake_labels[self.idx_test], test_lbls)
+                #     print(f"test_acc: {test_acc}")
+
             else:
                 print("*" * 15 + f"  Epoch {epoch - self.args.pretrain_epochs}  " + "*" * 15)
-                reward = self.model.update(graph_org, features, self.labels, pretrain=False, train_index=self.idx_train)
+                # Ncontrast train
+                reward = self.model.update(graph_org_torch, features, self.labels, pretrain=False, train_index=self.idx_train)
+
+                # KL-Loss train
+                # reward = self.model.update(graph_org, features, self.fake_labels, pretrain=False,
+                #                            train_index=self.idx_train)
                 rewards.append(reward)
                 plt.plot(range(len(rewards)), rewards)
                 plt.savefig("rewards_2.png")
+                plt.cla()
             if epoch >= self.args.pretrain_epochs and epoch % 5 == 0 and epoch != 0:
                 self.model.eval()
                 with torch.no_grad():
                     embeds = self.model(graph_org, features)
                     val_acc = accuracy(embeds[self.idx_val], val_lbls)
                     test_acc = accuracy(embeds[self.idx_test], test_lbls)
+                acces.append(test_acc.item())
+                plt.plot(range(len(acces)), acces)
+                plt.savefig("acc.png")
+                plt.cla()
                 print(f"Epoch: {epoch - self.args.pretrain_epochs}  val_acc: {val_acc} test_acc: {test_acc}")
                 stop_epoch = epoch
                 if val_acc > best:

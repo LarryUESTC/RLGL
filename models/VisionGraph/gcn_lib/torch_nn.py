@@ -90,13 +90,13 @@ def batched_index_select(x, idx):
         Tensor: output neighbors features
             :math:`\mathbf{X} \in \mathbb{R}^{B \times C \times N \times k}`.
     """
-    batch_size, num_dims, num_vertices_reduced = x.shape[:3]  # B，特征维度，顶点数量
-    _, num_vertices, k = idx.shape  # _，节点数量，KNN的K个
+    batch_size, num_dims, num_vertices_reduced = x.shape[:3]
+    _, num_vertices, k = idx.shape
     idx_base = torch.arange(0, batch_size, device=idx.device).view(-1, 1, 1) * num_vertices_reduced  # B,1,1
-    idx = idx + idx_base  # dix_base中第一维度的元素，加到idx中第一维度对应的矩阵上的所有元素中
-    idx = idx.contiguous().view(-1)  # 打平
+    idx = idx + idx_base
+    idx = idx.contiguous().view(-1)
 
-    x = x.transpose(2, 1)  # B,节点数，特征维度
+    x = x.transpose(2, 1)
     feature = x.contiguous().view(batch_size * num_vertices_reduced, -1)[idx, :]
     feature = feature.view(batch_size, num_vertices, k, num_dims).permute(0, 3, 1, 2).contiguous()
     return feature

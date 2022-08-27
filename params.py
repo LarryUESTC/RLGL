@@ -541,7 +541,7 @@ class Rein_GDP_Cora(Rein):
 
     def replace(self):
         super(Rein_GDP_Cora, self).replace()
-        self.args.batch_size = 256
+        self.args.batch_size = 128
         self.args.feature_dimension = 32
         self.args.discount_factor = 0.95
         self.args.pretrain_epochs = 500
