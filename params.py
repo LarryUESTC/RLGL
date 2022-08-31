@@ -47,7 +47,7 @@ class Semi_RGcn(Semi):
         super(Semi_RGcn, self).__init__(method, dataset)
         ################STA|add new params here|###############
         self.parser.add_argument('--wd', type=float, default=5e-4)
-        self.parser.add_argument('--gnn', type=str, default='GCN')
+        self.parser.add_argument('--gnn', type=str, default='GCN_org')
         ################END|add new params here|###############
         self.args, _ = self.parser.parse_known_args()
 
@@ -629,6 +629,7 @@ class ImgCls_ViG_CIFA10(ImgCls_ViG):
 params_key = {
     'Semi': Semi,
     'Semi_Gcn': Semi_Gcn,
+    'Semi_RGcn': Semi_RGcn,
     'Semi_SelfCons': Semi_SelfCons,
     'Semi_Gcn_Cora': Semi_Gcn_Cora,
     'Unsup': Unsup,
