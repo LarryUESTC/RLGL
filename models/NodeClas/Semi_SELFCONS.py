@@ -31,31 +31,13 @@ def get_feature_dis(x):
     x_dis(i,j):   item means the similarity between x(i) and x(j).
     """
     x_dis = x@x.T
-    mask = torch.eye(x_dis.shape[0]).cuda(3)
+    mask = torch.eye(x_dis.shape[0]).cuda()
     x_sum = torch.sum(x**2, 1).reshape(-1, 1)
     x_sum = torch.sqrt(x_sum).reshape(-1, 1)
     x_sum = x_sum @ x_sum.T
     x_dis = x_dis*(x_sum**(-1))
     x_dis = (1-mask) * x_dis
     return x_dis
-
-# def get_feature_dis_New(x):
-#     """
-#     x :           batch_size x nhid
-#     x_dis(i,j):   item means the similarity between x(i) and x(j).
-#     """
-#     x_dis = x@x.T
-#     N = x_dis.shape[0]
-#     maxadj = torch.topk(x_dis, k=10, dim=1, sorted=False, largest=True).values[:, -1].view(N, 1).repeat(1, N)
-#     x_dis = x_dis * ((x_dis >= maxadj) + 0)
-#     mask = torch.eye(x_dis.shape[0]).cuda()
-#     x_sum = torch.sum(x**2, 1).reshape(-1, 1)
-#     x_sum = torch.sqrt(x_sum).reshape(-1, 1)
-#     x_sum = x_sum @ x_sum.T
-#     x_dis = x_dis*(x_sum**(-1))
-#     x_dis = (1-mask) * x_dis
-#
-#     return x_dis
 
 def splite_nerbor(adj, max_num = 10):
     number_neibor = adj.sum(dim=1)
@@ -81,6 +63,8 @@ def attention(q, k, v, d_k, mask=None, dropout=None):
         mask = mask.unsqueeze(0)
         scores = scores.masked_fill(mask == 0, -1e9)
 
+    scores = F.softmax(scores, dim=-1)
+    scores = torch.where(scores > scores.mean(), scores, torch.zeros_like(scores))
     scores = F.softmax(scores, dim=-1)
 
     if dropout is not None:
@@ -113,8 +97,6 @@ class MultiHeadAttention_new(nn.Module):
         k = self.k_linear(k).view(bs, self.h, self.d_k)
         q = self.q_linear(q).view(bs, self.h, self.d_k)
         v = self.v_linear(v).view(bs, self.h, self.d_k)
-        # q = k.clone()
-        # v = k.clone()
 
         # transpose to get dimensions bs * N * sl * d_model
         k = k.transpose(1, 0)
@@ -234,19 +216,17 @@ class GAT_selfCon_Trans(nn.Module):
         for i in range(self.Trans_layer_num):
             x = self.layers[i](x)
 
-        x_dis_1 = get_feature_dis(self.norm_layers[-2](x))
         D_dim_single = int(self.hid_dim/self.nheads)
         CONN_INDEX = torch.zeros((x.shape[0],self.nclass)).to(x.device)
-
         for Head_i in range(self.nheads):
             feature_cls_sin = x[:, Head_i*D_dim_single:(Head_i+1)*D_dim_single]
             feature_cls_sin = self.norm_trans(feature_cls_sin)
             Linear_out_one = F.elu(self.Linear_selfC[Head_i](feature_cls_sin))
-            CONN_INDEX += F.softmax(Linear_out_one - Linear_out_one.sort(descending= True)[0][:,3].unsqueeze(1), dim=1)
+            # CONN_INDEX += F.softmax(Linear_out_one - Linear_out_one.sort(descending= True)[0][:,3].unsqueeze(1), dim=1)
+            CONN_INDEX += F.softmax(Linear_out_one, dim=1)
 
 
-
-        return F.log_softmax(CONN_INDEX, dim=1), x_dis, x_dis_1
+        return F.log_softmax(CONN_INDEX, dim=1), x_dis
 
 
 class SELFCONS(embedder_single):
@@ -292,14 +272,14 @@ class SELFCONS(embedder_single):
             adj_label = get_A_r(graph_org_torch, i)
             adj_label_list.append(adj_label)
 
-        adj_label = adj_label_list[-1]
+        adj_label = adj_label_list[-2]
         for epoch in range(self.args.nb_epochs):
             self.model.train()
             optimiser.zero_grad()
 
 
             input_feature = features
-            embeds, x_dis, x_dis_1 = self.model(input_feature)
+            embeds, x_dis = self.model(input_feature)
 
             embeds_preds = torch.argmax(embeds, dim=1)
             train_embs = embeds[self.idx_train]
@@ -307,10 +287,9 @@ class SELFCONS(embedder_single):
             test_embs = embeds[self.idx_test]
 
             loss_Ncontrast = Ncontrast(x_dis, adj_label, tau=self.args.tau)
-            loss_Ncontrast_1 = Ncontrast(x_dis_1, adj_label, tau=self.args.tau)
 
-            loss_cls = F.cross_entropy(train_embs, train_lbls)
-            loss = loss_cls + loss_Ncontrast * self.args.beta
+            loss = F.cross_entropy(train_embs, train_lbls) + loss_Ncontrast* self.args.beta
+            # loss = loss_cls + loss_Ncontrast * self.args.beta
 
             loss.backward()
             totalL.append(loss.item())
@@ -319,14 +298,14 @@ class SELFCONS(embedder_single):
             ################STA|Eval|###############
             if epoch % 5 == 0 and epoch != 0 :
                 self.model.eval()
-                embeds, _, _ = self.model(features)
+                embeds, _ = self.model(features)
                 val_acc = accuracy(embeds[self.idx_val], val_lbls)
                 test_acc = accuracy(embeds[self.idx_test], test_lbls)
                 # print(test_acc.item())
-                for test_ind in number_neibor_list:
-                    test_acc_ind = accuracy(embeds[test_ind], self.labels[test_ind])
-                    print("{:.2f} | ".format(test_acc_ind*100), end="")
-                print(test_acc.item())
+                # for test_ind in number_neibor_list:
+                #     test_acc_ind = accuracy(embeds[test_ind], self.labels[test_ind])
+                #     print("{:.2f} | ".format(test_acc_ind*100), end="")
+                # print(test_acc.item())
                 # early stop
                 stop_epoch = epoch
                 if val_acc > best:

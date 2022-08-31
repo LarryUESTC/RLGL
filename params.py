@@ -15,7 +15,7 @@ class Semi(object):
         self.parser.add_argument('--save_root', type=str, default="./saved_model", help='root for saving the model')
         self.parser.add_argument('--random_aug_feature', type=float, default=0.2, help='RA feature')
         self.parser.add_argument('--random_aug_edge', type=float, default=0.2, help='RA graph')
-        self.parser.add_argument('--gpu_num', type=int, default=0, help='the id of gpu to use')
+        self.parser.add_argument('--gpu_num', type=int, default=6, help='the id of gpu to use')
         self.args, _ = self.parser.parse_known_args()
 
     def replace(self):
@@ -42,6 +42,23 @@ class Semi_Gcn(Semi):
         self.args.__setattr__('method', 'SEMI_GCN')
         self.args.__setattr__('lr', 0.05)
 
+class Semi_RGcn(Semi):
+    def __init__(self, method, dataset):
+        super(Semi_RGcn, self).__init__(method, dataset)
+        ################STA|add new params here|###############
+        self.parser.add_argument('--wd', type=float, default=5e-4)
+        self.parser.add_argument('--gnn', type=str, default='GCN')
+        ################END|add new params here|###############
+        self.args, _ = self.parser.parse_known_args()
+
+        ################STA|replace params here|###############
+        self.replace()
+        ################END|replace params here|###############
+
+    def replace(self):
+        super(Semi_RGcn, self).replace()
+        self.args.__setattr__('method', 'SEMI_RGCN')
+        self.args.__setattr__('lr', 0.05)
 
 class Semi_GcnMixup(Semi):
     def __init__(self, method, dataset):
@@ -68,6 +85,7 @@ class Semi_SelfCons(Semi):
         self.parser.add_argument('--Trans_layer_num', type=int, default=2, help='transformer layer number')
         self.parser.add_argument('--beta', type=int, default=0.1, help='Ncontrastive loss params')
         self.parser.add_argument('--tau', type=int, default=1.0, help='tau for Ncontrastive')
+        self.parser.add_argument('--gnn', type=str, default='GCN', help='gnn model')
         ################END|add new params here|###############
         self.args, _ = self.parser.parse_known_args()
 

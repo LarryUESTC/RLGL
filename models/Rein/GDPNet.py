@@ -7,7 +7,7 @@ from torch import nn
 from torch.nn import functional as F
 from torch.distributions import Categorical
 from models.Layers import act_layer
-from models.NodeClas.Semi_SELFCONS import GAT_selfCon_Trans
+# from models.NodeClas.Semi_SELFCONS import GAT_selfCon_Trans
 from models.Rein.RLG import KDloss_0
 from evaluate import accuracy
 import setproctitle

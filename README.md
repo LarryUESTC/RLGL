@@ -12,7 +12,14 @@ The goal of this project is to build a framework that is easy to get started wit
 - torch_geometric
 - dgl
 - ray
-
+- ogb
+- termcolor
+- munkres
+- gym
+- setproctitle
+- matplotlib
+- timm
+- psycopg2-binary
 Full installed packages, pls see requirements (not all of them are needed)
 
 # Quickly Use:

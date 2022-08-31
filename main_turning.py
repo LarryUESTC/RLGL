@@ -6,12 +6,13 @@ import models
 from ray import tune
 import ray
 from ray.tune.integration.torch import DistributedTrainableCreator
+from ray.tune.suggest.hebo import HEBOSearch
 from utils.sql_writer import WriteToDatabase, get_primary_key_and_value, get_columns, merge_args_and_dict, merge_args_and_config
 from statistics import mean
 import socket, os
 import gc
 import copy
-TUNE = False
+TUNE = True
 
 def main_one(config, checkpoint_dir = None):
 
@@ -40,7 +41,7 @@ def main_one(config, checkpoint_dir = None):
         "time": None,
     }
 
-    TABLE_NAME = 'main_RLGL_' + current_args.task + '_' + current_args.method + '_0'
+    TABLE_NAME = 'main_RLGL_' + current_args.task + '_' + current_args.method + '_2'
     try:
         writer = WriteToDatabase({'host': "postgres.kongfei.life", "port": "40201",
                                   "database": "pengliang", "user": "pengliang", "password": "262300aa"},
@@ -65,7 +66,7 @@ def main_one(config, checkpoint_dir = None):
     current_args.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     ACC_seed = []
     Time_seed = []
-    for seed in range(2020,2024):
+    for seed in range(2020,2023):
 
         np.random.seed(seed)
         torch.manual_seed(seed)
@@ -107,29 +108,28 @@ def main(args):
     # param set
     ################STA|set tune param|###############
     if TUNE:
-        os.environ['CUDA_VISIBLE_DEVICES'] =  "1,2,4,6,7"
-        ray.init(num_gpus=5)
+        os.environ['CUDA_VISIBLE_DEVICES'] =  "1,2,3,4,5,6,7"
+        ray.init(num_gpus=7)
         config = {
-        'nb_epochs':tune.choice([200, 400, 800, 1000]),
-        'lr':tune.choice([0.01, 0.001, 0.0005, 0.0001]),
-        'wd': tune.choice([0.0001, 0.00001, 0]),
-        'test_epo':tune.choice([50, 100, 200]),
-        'test_lr':tune.choice([0.01, 0.001]),
-        'cfg':  tune.choice([[512,256], [256,128], [128,64]]),
-        'random_aug_feature': tune.choice([0.0, 0.1, 0.2, 0.5]),
-        'random_aug_edge': tune.choice([0.0, 0.1, 0.2, 0.5]),
-        'alpha': tune.choice([5, 1, 0.5, 0.2, 0.1, 0.02]),
-        'beta': tune.choice([1, 0.5, 0.2, 0.1, 0.05, 0.01]),
-        'gnn': tune.choice(["GCN","GAT"]),
+        'nb_epochs': tune.choice([2000, 4000]),
+        'patience': tune.choice([100, 200, 300]),
+        'lr': tune.choice([0.0005, 0.0002, 0.0001, 0.005, 0.002, 0.001]),
+        'wd': tune.choice([0e-4, 5e-4, 1e-4, 5e-5, 1e-5]),
+        'cfg': tune.choice([[256], [128], [64], [512]]),
+        'random_aug_feature': tune.choice([0.1, 0.2, 0.3, 0.4]),
+        'beta': tune.choice([0.001, 0.01, 0.1, 0.2, 0.5, 1, 2, 5, 10]),
+        'nheads':tune.choice([8, 4, 2, 16]),
+        'Trans_layer_num':tune.choice([2, 1, 4]),
+        'tau':tune.choice([0.5, 0.8, 1, 1.5]),
         }
         # search_alg = HEBOSearch(metric='test_sum', mode='max')
         distributed_ray_run = DistributedTrainableCreator(
             main_one,
             backend='nccl',
-            num_gpus_per_worker=0.5,
+            num_gpus_per_worker=1,
             num_workers=1,
         )
-        tune.run(distributed_ray_run, config=config, num_samples=1000 )
+        tune.run(distributed_ray_run, config=config, num_samples=5000 )
         # search_alg.save('checkpoint_alg')
     else:
         config = {
@@ -149,8 +149,8 @@ def main(args):
     ################END|set tune param|###############
 
 if __name__ == '__main__':
-    task = 'Sup'    # choice:Semi Unsup Sup Rein Noise
-    method = 'Gcn'  # choice: Gcn
+    task = 'Semi'    # choice:Semi Unsup Sup Rein Noise
+    method = 'SelfCons'  # choice: Gcn
     dataset = 'Cora' # choice:Cora CiteSeer PubMed
     args = parse_args(task, method, dataset)
     torch.backends.cudnn.deterministic = True
