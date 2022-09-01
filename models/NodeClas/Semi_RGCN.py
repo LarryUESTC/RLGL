@@ -19,6 +19,24 @@ def get_similarity(x):
     x_dis = (1-mask) * x_dis
     return x_dis
 
+def Ncontrast(x_dis, adj_label, tau = 1):
+    x_dis = torch.exp(tau * x_dis)
+    x_dis_sum = torch.sum(adj_label, 1)
+    x_dis_sum_pos = torch.sum(x_dis*adj_label, 1)
+    loss = -torch.log(x_dis_sum_pos * (x_dis_sum**(-1))+1e-8).mean()
+    return loss
+
+def splite_nerbor(adj, max_num = 10):
+    number_neibor = adj.sum(dim=1)
+    number_neibor_zero = torch.zeros_like(number_neibor)
+    number_neibor_one = torch.ones_like(number_neibor)
+    number_neibor_list = []
+    for num in range(1, max_num):
+        number_neibor_list.append(torch.nonzero(number_neibor == num).squeeze())
+    number_neibor_list.append(
+        torch.nonzero(torch.where(number_neibor >= max_num, number_neibor_one, number_neibor_zero)).squeeze())
+    return number_neibor_list
+
 class RGNN_Model(nn.Module):
     def __init__(self, n_in, cfg=None, batch_norm=False, act='relu', gnn='GCN', dropout=0.0, final_mlp=0):
         super(RGNN_Model, self).__init__()
@@ -37,6 +55,7 @@ class RGNN_Model(nn.Module):
         bat_layers = []
         in_channels = n_in
         self.reverse_layer = nn.Linear(in_channels, cfg[0])
+        self.P_layer = nn.Linear(cfg[-1], in_channels)
         for i, v in enumerate(cfg):
             out_channels = v
             GCN_layers.append(GNN_layer(gnn, in_channels, out_channels))
@@ -87,11 +106,16 @@ class RGNN_Model(nn.Module):
     def forward(self, A_a, X_a):
         # X_a = F.dropout(X_a, 0.2)
         # X_a = F.dropout(X_a, self.dropout, training=self.training)
+        N = X_a.size(0)
         z = self.reverse_layer(X_a)
         S = get_similarity(z)
-        
+        topk = 5
+        v = 0.5
+        maxadj = torch.topk(S, k=topk, dim=1, sorted=False, largest=True).values[:, -1].view(N, 1).repeat(1, N)
+        S_out = S * ((S >= maxadj) + 0)
+        adj = (1 - v) * A_a + v * S_out
         for i in range(self.layer_num):
-            X_a = self.GCN_layers[i](A_a, X_a)
+            X_a = self.GCN_layers[i](adj, X_a)
             if self.gnn == "GAT":
                 X_a = torch.mean(X_a, dim=1)
             if self.act and i != self.layer_num - 1:
@@ -100,10 +124,13 @@ class RGNN_Model(nn.Module):
                 X_a = self.bat_layers[i](X_a)
             if self.dropout > 0 and i != self.layer_num - 1:
                 X_a = F.dropout(X_a, self.dropout, training=self.training)
+
         if self.final_mlp:
             embeding_a = self.mlp(X_a)
         else:
             embeding_a = X_a
+
+        ZP = self.P_layer(X_a)
         # X_a = F.relu(self.GCN_layers[0](A_a, X_a))
         # embeding_a = self.GCN_layers[1](A_a, X_a)
         # inputx = F.dropout(X_a, 0.1, training=self.training)
@@ -113,7 +140,7 @@ class RGNN_Model(nn.Module):
         # embeding_a = self.GCN_layers[1](A_a, x)
         # embeding_a = (embeding_a - embeding_a.mean(0)) / embeding_a.std(0)
 
-        return embeding_a
+        return embeding_a, ZP, S
 
 
 class RGCN(embedder_single):
@@ -124,14 +151,15 @@ class RGCN(embedder_single):
         # if not os.path.exists(self.args.save_root):
         #     os.makedirs(self.args.save_root)
         nb_classes = (self.labels.max() - self.labels.min() + 1).item()
-        self.cfg.append(nb_classes)
-        self.model = RGNN_Model(self.args.ft_size, cfg=self.cfg, final_mlp = 0, gnn = self.args.gnn, dropout=self.args.random_aug_feature).to(self.args.device)
+        # self.cfg.append(nb_classes)
+        self.model = RGNN_Model(self.args.ft_size, cfg=self.cfg, final_mlp = nb_classes, gnn = self.args.gnn, dropout=self.args.random_aug_feature).to(self.args.device)
 
     def training(self):
 
         features = self.features.to(self.args.device)
         # graph_org = self.dgl_graph.to(self.args.device)
         graph_org_torch = self.adj_list[0].to(self.args.device)
+        number_neibor_list = splite_nerbor(self.adj_list[-1])
         print("Started training...")
 
 
@@ -148,6 +176,7 @@ class RGCN(embedder_single):
 
         start = time.time()
         totalL = []
+        ZP_list = []
         # features = F.normalize(features)
         for epoch in range(self.args.nb_epochs):
             self.model.train()
@@ -156,16 +185,28 @@ class RGCN(embedder_single):
             # A_a, X_a = process.RA(graph_org.cpu(), features, self.args.random_aug_feature,self.args.random_aug_edge)
             # A_a = A_a.add_self_loop().to(self.args.device)
 
-            embeds = self.model(graph_org_torch, features)
+            embeds, ZP, S = self.model(graph_org_torch, features)
+
             embeds_preds = torch.argmax(embeds, dim=1)
             
             train_embs = embeds[self.idx_train]
             val_embs = embeds[self.idx_val]
             test_embs = embeds[self.idx_test]
 
-            
-            loss = F.cross_entropy(train_embs, train_lbls)
+            GLR_loss = 0
+            if epoch > 1:
+                adj_label = get_similarity(ZP_list[-1])
+                GLR_loss = self.args.beta * Ncontrast(adj_label, S)
 
+            loss_reverse = self.args.gama * F.smooth_l1_loss(ZP, F.normalize(features))
+            # features_nomal2 = ((a + 1) * features_nomal - 1) * (1 / a)
+            # # loss_reverse = L2(output_fit, B)*0.0 + 0*F.smooth_l1_loss(output_fit, features_nomal) +a*(5*F.smooth_l1_loss(output_fit, features_nomal2) - 0*(output_fit.sum()/features_nomal.sum()))
+            # # loss_reverse = torch.exp(-cos(F.normalize(output_fit), F.normalize(features_nomal2))).sum() / (N * N)
+            # # loss_reverse = 100*F.smooth_l1_loss(F.normalize(output_fit), features_nomal2) + ((features_nomal - output_fit)*features_nomal).sum()/N
+            # loss_reverse = b * F.smooth_l1_loss(output_fit, features_nomal2) + (
+            #         (features_nomal - output_fit) * features_nomal).sum() / features_nomal.sum()
+            loss = F.cross_entropy(train_embs, train_lbls) + GLR_loss +  loss_reverse
+            ZP_list.append(ZP.detach())
             loss.backward()
             totalL.append(loss.item())
             optimiser.step()
@@ -175,10 +216,13 @@ class RGCN(embedder_single):
                 self.model.eval()
                 # A_a, X_a = process.RA(graph_org.cpu(), features, 0, 0)
                 # A_a = A_a.add_self_loop().to(self.args.device)
-                embeds = self.model(graph_org_torch, features)
+                embeds, ZP, S = self.model(graph_org_torch, features)
                 val_acc = accuracy(embeds[self.idx_val], val_lbls)
                 test_acc = accuracy(embeds[self.idx_test], test_lbls)
-                # print(test_acc.item())
+                for test_ind in number_neibor_list:
+                    test_acc_ind = accuracy(embeds[test_ind], self.labels[test_ind])
+                    print("{:.2f} | ".format(test_acc_ind*100), end="")
+                print(test_acc.item())
                 # early stop
                 stop_epoch = epoch
                 if val_acc > best:
