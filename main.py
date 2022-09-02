@@ -96,13 +96,13 @@ def main(args):
     # param set
     ################STA|set tune param|###############
     config = {
-        'nb_epochs': 1000,
-        'cfg': [16, 16],
+        'nb_epochs': 3000,
+        'cfg': [256, 256],
         'random_aug_feature': 0.2,
-        'beta': 10,
-        'gama': 1,
-        'knn': 5,
-        'delta': 0.2
+        # 'beta': 10,
+        # 'gama': 1,
+        # 'knn': 5,
+        # 'delta': 0.2
     }
     main_one(config)
     ################END|set tune param|###############
@@ -110,7 +110,7 @@ def main(args):
 
 if __name__ == '__main__':
     task = 'Semi'  # choice:Semi Unsup Sup Rein Noise ImgCls
-    method = 'RGcn'  # choice: Gcn ViG GDP GcnMixup SelfCons
+    method = 'SelfCons'  # choice: Gcn ViG GDP GcnMixup SelfCons
     dataset = 'Cora'  # choice:Cora CiteSeer PubMed CIFAR10
     args = parse_args(task, method, dataset)
     torch.backends.cudnn.deterministic = True

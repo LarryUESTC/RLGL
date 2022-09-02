@@ -83,7 +83,8 @@ class Semi_SelfCons(Semi):
         ################STA|add new params here|###############
         self.parser.add_argument('--nheads', type=int, default=8, help='transformer multi-heads')
         self.parser.add_argument('--Trans_layer_num', type=int, default=2, help='transformer layer number')
-        self.parser.add_argument('--beta', type=int, default=0.1, help='Ncontrastive loss params')
+        self.parser.add_argument('--beta', type=int, default=1, help='Ncontrastive loss params')
+        self.parser.add_argument('--wd', type=int, default=5e-5, help='weight delay')
         self.parser.add_argument('--tau', type=int, default=1.0, help='tau for Ncontrastive')
         self.parser.add_argument('--gnn', type=str, default='GCN', help='gnn model')
         ################END|add new params here|###############
