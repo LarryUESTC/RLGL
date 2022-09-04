@@ -37,6 +37,13 @@ def KDloss_0( y, teacher_scores):
     l_kl = F.kl_div(p, q, size_average=False) * (T ** 2) / y.shape[0]
     return l_kl
 
+class Categorical(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, log_p):
+        return torch.multinomial(log_p.exp(), 1).long().squeeze(1)
+
 def get_feature_dis(x):
     """
     x :           batch_size x nhid
@@ -68,49 +75,20 @@ class Norm(nn.Module):
                / (x.std(dim=-1, keepdim=True) + self.eps) + self.bias
         return norm
 
-class Act_Model(nn.Module):
-    def __init__(self, n_in ,cfg = None, batch_norm=True, act='elu', dropout = 0.2, final_mlp = 0):
-        super(Act_Model, self).__init__()
+class FeedForward(nn.Module):
+    def __init__(self, d_model, d_ff=2048, dropout=0.1):
+        super().__init__()
 
-        self.dropout = dropout
-        self.bat = batch_norm
-        self.act = act
-        self.final_mlp = final_mlp > 0
-        self.cfg = cfg
-        self.layer_num = len(cfg)
-        in_channels = n_in
-        self.norm_0 = Norm(in_channels)
-        self.mlp_1 = nn.Linear(in_channels, cfg[0])
-        self.norm_1 = Norm(cfg[0])
-        self.trans_1 = MultiHeadAttention_new(heads, d_model,d_model, dropout=dropout)
-        self.ff = FeedForward(d_model, dropout=dropout)
-        self.dropout_1 = nn.Dropout(dropout)
-        self.dropout_2 = nn.Dropout(dropout)
+        # We set d_ff as a default to 2048
+        self.linear_1 = nn.Linear(d_model, d_ff)
+        self.dropout = nn.Dropout(dropout)
+        self.linear_2 = nn.Linear(d_ff, d_model)
 
-
-        # for m in self.modules():
-        #     self.weights_init(m)
-    # def weights_init(self, m):
-    #     if isinstance(m, nn.Linear):
-    #         torch.nn.init.xavier_uniform_(m.weight.data)
-    #         if m.bias is not None:
-    #             m.bias.data.fill_(0.0)
-    #     if isinstance(m, nn.Sequential):
-    #         for mm in m:
-    #             try:
-    #                 torch.nn.init.xavier_uniform_(mm.weight.data)
-    #             except:
-    #                 pass
-
-
-    def forward(self, x_input):
-        x_input = self.norm_0(x_input)
-        x_1 = self.norm_1(F.elu(self.mlp_1(x_input)))
-        x_2 = self.trans_1(x_1, x_1, x_1)
-        x = x + self.dropout_1(self.attn(x2, x2, x2, mask))
-        x2 = self.norm_2(x)
-        x = x + self.dropout_2(self.ff(x2))
+    def forward(self, x):
+        x = self.dropout(F.relu(self.linear_1(x)))
+        x = self.linear_2(x)
         return x
+
 
 def attention(q, k, v, d_k, mask=None, dropout=None):
     scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(d_k)
@@ -118,7 +96,7 @@ def attention(q, k, v, d_k, mask=None, dropout=None):
 
     if mask is not None:
         mask = mask.unsqueeze(0)
-        scores = scores.masked_fill(mask == 0, -1e9)
+        scores = scores.masked_fill(mask, -1e9)
 
     scores = F.softmax(scores, dim=-1)
     scores = torch.where(scores > scores.mean(), scores, torch.zeros_like(scores))
@@ -167,6 +145,64 @@ class MultiHeadAttention_new(nn.Module):
 
         return output
 
+class Act_Model(nn.Module):
+    def __init__(self, n_in ,cfg = None, batch_norm=True, act='elu', dropout = 0.1, final_mlp = 0, heads = 4):
+        super(Act_Model, self).__init__()
+
+        self.dropout = dropout
+        self.bat = batch_norm
+        self.act = act
+        self.final_mlp = final_mlp > 0
+        self.cfg = cfg
+        self.layer_num = len(cfg)
+        in_channels = n_in
+        self.norm_0 = Norm(in_channels)
+        self.mlp_1 = nn.Linear(in_channels, cfg[0])
+        self.norm_1 = Norm(cfg[0])
+        self.trans_1 = MultiHeadAttention_new(heads, cfg[0],cfg[0], dropout=dropout)
+        self.ff_1 = FeedForward(cfg[0], dropout=dropout)
+        self.dropout_1 = nn.Dropout(dropout)
+        self.dropout_2 = nn.Dropout(dropout)
+        self.selecter = Categorical()
+
+        # for m in self.modules():
+        #     self.weights_init(m)
+    # def weights_init(self, m):
+    #     if isinstance(m, nn.Linear):
+    #         torch.nn.init.xavier_uniform_(m.weight.data)
+    #         if m.bias is not None:
+    #             m.bias.data.fill_(0.0)
+    #     if isinstance(m, nn.Sequential):
+    #         for mm in m:
+    #             try:
+    #                 torch.nn.init.xavier_uniform_(mm.weight.data)
+    #             except:
+    #                 pass
+
+
+    def forward(self, x_input, mask, q_idx, k_idx):
+        pi_list= []
+        log_ps = []
+
+        x_input = self.norm_0(x_input)
+        x_1 = self.dropout_1(self.norm_1(F.elu(self.mlp_1(x_input))))
+
+        x_2 = self.trans_1(x_1, mask) + x_1
+        x_2 = self.norm_2(F.elu(x_2))
+
+        x_3 = self.dropout_2(self.ff_1(x_2)) + x_1
+
+        q_embedding = x_3[q_idx].unsqueeze(-1) #[Batch, 1, dim]
+        k_embedding = x_3[k_idx].repeat(0, 1, 1) #[Batch, dim, train_num]
+        logits = torch.bmm(q_embedding,k_embedding)
+
+        log_p = torch.log_softmax(logits, dim=-1)
+        neibor_select = self.selecter(log_p)  # 通过学习得到的动作概率抽样选择最终动作
+        pi_list.append(neibor_select)
+        log_ps.append(log_p)
+
+        ll = self.get_log_likelihood(torch.stack(log_ps, 1), pi_list)   #一系列动作的的概率和用于反向传播
+        return pi_list -1, ll #因为第一个为stop，所有所有位置需要-1
 
 # class gcn_env(object):
 #     def __init__(self, args, adj, feature, data_split, label, lr=0.01, weight_decay=5e-4,  batch_size=128, policy=""):
@@ -375,7 +411,7 @@ class RLG(embedder_single):
 
         self.data_split = zip(self.idx_train.cpu(), self.idx_val.cpu(), self.idx_test.cpu())
         self.env_model = GNN_Model(self.args.ft_size, cfg=self.cfg[1:], final_mlp = 0, gnn = self.args.gnn, dropout=self.args.random_aug_feature).to(self.args.device)
-        self.act_model = MLP_Model(self.args.ft_size, cfg=self.cfg, final_mlp = 0, dropout=self.args.random_aug_feature).to(self.args.device)
+        self.act_model = Act_Model(self.args.ft_size, cfg=self.cfg, final_mlp = 0, dropout=self.args.random_aug_feature).to(self.args.device)
 
     def pre_training(self):
 
@@ -449,10 +485,11 @@ class RLG(embedder_single):
         print("Started training...")
         idx_test_val = self.idx_test + self.idx_val
         batch_size = 64
-
+        mask = torch.zeros().to(self.args.device)
         for epoch in range(self.args.nb_epochs):
             batch_idx = random.sample(idx_test_val, batch_size)
             batch_input = features(batch_idx)
+
 
 
 
