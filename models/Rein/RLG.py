@@ -23,11 +23,11 @@ def get_A_r(adj, r):
 
     return adj_label
 
-def Ncontrast(x_dis, adj_label, tau):
+def Ncontrast(x_dis, adj_label, tau = 1):
     x_dis = torch.exp(tau * x_dis)
     x_dis_sum = torch.sum(x_dis, 1)
     x_dis_sum_pos = torch.sum(x_dis*adj_label, 1)
-    loss = -torch.log(x_dis_sum_pos +1e-8).mean()
+    loss = -torch.log(x_dis_sum_pos * (x_dis_sum**(-1))+1e-8).mean()
     return loss
 
 def KDloss_0( y, teacher_scores):
@@ -37,6 +37,22 @@ def KDloss_0( y, teacher_scores):
     l_kl = F.kl_div(p, q, size_average=False) * (T ** 2) / y.shape[0]
     return l_kl
 
+def get_log_likelihood(_log_p, pi):
+    """	args:
+        _log_p: (batch, city_t, city_t)
+        pi: (batch, city_t), predicted tour
+        return: (batch)
+    """
+    log_p = torch.gather(input=_log_p, dim=2, index=pi[:, :, None]).squeeze(-1)
+
+    # index_truncation = torch.max(pi, 1)[1]
+    # mask = torch.zeros((log_p.shape[0], log_p.shape[1] + 1), dtype=log_p.dtype, device=log_p.device)
+    # mask[(torch.arange(log_p.shape[0]), index_truncation + 1)] = 1
+    # mask = mask.cumsum(dim=1)[:, :-1]  # remove the superfluous column
+    # log_p = log_p * (1. - mask)  # use mask to zero after each column
+    # return torch.div(torch.sum(log_p.squeeze(-1), 1), index_truncation + 1)
+
+    return torch.mean(log_p.squeeze(-1), 1)
 class Categorical(nn.Module):
     def __init__(self):
         super().__init__()
@@ -99,8 +115,8 @@ def attention(q, k, v, d_k, mask=None, dropout=None):
         scores = scores.masked_fill(mask, -1e9)
 
     scores = F.softmax(scores, dim=-1)
-    scores = torch.where(scores > scores.mean(), scores, torch.zeros_like(scores))
-    scores = F.softmax(scores, dim=-1)
+    # scores = torch.where(scores > scores.mean(), scores, torch.zeros_like(scores))
+    # scores = F.softmax(scores, dim=-1)
 
     if dropout is not None:
         scores = dropout(scores)
@@ -159,6 +175,7 @@ class Act_Model(nn.Module):
         self.norm_0 = Norm(in_channels)
         self.mlp_1 = nn.Linear(in_channels, cfg[0])
         self.norm_1 = Norm(cfg[0])
+        self.norm_2 = Norm(cfg[0])
         self.trans_1 = MultiHeadAttention_new(heads, cfg[0],cfg[0], dropout=dropout)
         self.ff_1 = FeedForward(cfg[0], dropout=dropout)
         self.dropout_1 = nn.Dropout(dropout)
@@ -187,22 +204,22 @@ class Act_Model(nn.Module):
         x_input = self.norm_0(x_input)
         x_1 = self.dropout_1(self.norm_1(F.elu(self.mlp_1(x_input))))
 
-        x_2 = self.trans_1(x_1, mask) + x_1
+        x_2 = self.trans_1(x_1, x_1, x_1, mask) + x_1
         x_2 = self.norm_2(F.elu(x_2))
 
         x_3 = self.dropout_2(self.ff_1(x_2)) + x_1
 
-        q_embedding = x_3[q_idx].unsqueeze(-1) #[Batch, 1, dim]
-        k_embedding = x_3[k_idx].repeat(0, 1, 1) #[Batch, dim, train_num]
-        logits = torch.bmm(q_embedding,k_embedding)
-
+        q_embedding = x_3[q_idx].unsqueeze(1) #[Batch, 1, dim]
+        k_embedding = x_3[k_idx].unsqueeze(0).repeat(q_embedding.size(0), 1, 1).transpose(-2, -1) #[Batch, dim, train_num]
+        logits = torch.bmm(q_embedding,k_embedding).squeeze()
+        logits = logits * (torch.sum(logits, 1)**(-1))
         log_p = torch.log_softmax(logits, dim=-1)
         neibor_select = self.selecter(log_p)  # 通过学习得到的动作概率抽样选择最终动作
         pi_list.append(neibor_select)
         log_ps.append(log_p)
 
-        ll = self.get_log_likelihood(torch.stack(log_ps, 1), pi_list)   #一系列动作的的概率和用于反向传播
-        return pi_list -1, ll #因为第一个为stop，所有所有位置需要-1
+        ll = torch.gather(input= log_ps[0], dim = 1, index=pi_list[0][:,None]).squeeze()   #一系列动作的的概率和用于反向传播
+        return pi_list[0], ll #因为第一个为stop，所有所有位置需要-1
 
 # class gcn_env(object):
 #     def __init__(self, args, adj, feature, data_split, label, lr=0.01, weight_decay=5e-4,  batch_size=128, policy=""):
@@ -412,6 +429,7 @@ class RLG(embedder_single):
         self.data_split = zip(self.idx_train.cpu(), self.idx_val.cpu(), self.idx_test.cpu())
         self.env_model = GNN_Model(self.args.ft_size, cfg=self.cfg[1:], final_mlp = 0, gnn = self.args.gnn, dropout=self.args.random_aug_feature).to(self.args.device)
         self.act_model = Act_Model(self.args.ft_size, cfg=self.cfg, final_mlp = 0, dropout=self.args.random_aug_feature).to(self.args.device)
+        self.act_optimizer = torch.optim.Adam(self.act_model.parameters(), lr=0.001)
 
     def pre_training(self):
 
@@ -479,16 +497,35 @@ class RLG(embedder_single):
         return Last_embedding
 
     def act_training(self, env_embedding):
+        dis_embedding = get_feature_dis(env_embedding)
         features = self.features.to(self.args.device)
         graph_org = self.dgl_graph.to(self.args.device)
         graph_org_torch = self.adj_list[0].to(self.args.device)
         print("Started training...")
-        idx_test_val = self.idx_test + self.idx_val
-        batch_size = 64
-        mask = torch.zeros().to(self.args.device)
+        idx_test_val = list(self.idx_test.cpu().numpy()) + list(self.idx_val.cpu().numpy())
+        idx_train = list(self.idx_train.cpu().numpy())
+        batch_size = self.args.batch
+        labeled_size = self.idx_train.size(0)
+        q_idx = range(batch_size)
+        k_idx = range(batch_size, batch_size + labeled_size)
+        mask = torch.zeros([batch_size + labeled_size, batch_size + labeled_size])
+        mask[:, : batch_size] = 1.0
+        mask = mask.bool().to(self.args.device)
         for epoch in range(self.args.nb_epochs):
             batch_idx = random.sample(idx_test_val, batch_size)
-            batch_input = features(batch_idx)
+            batch_input = features[batch_idx+idx_train]
+
+            pi_list, ll = self.act_model(batch_input, mask, q_idx, k_idx)
+            real_reward = torch.diag(dis_embedding[pi_list][:,batch_idx])
+
+
+
+            act_loss = (real_reward * ll).mean()        #*10是因为loss太小   #常规的AC网络， 这里应该是max_pi sum_i{Q*p_i} 这里的Q从reward的期望换成了loss
+            self.act_optimizer.zero_grad()
+            act_loss.backward()
+            nn.utils.clip_grad_norm_(self.act_model.parameters(), max_norm=1., norm_type=2)
+            self.act_optimizer.step()
+
 
 
 

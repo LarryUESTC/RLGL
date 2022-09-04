@@ -537,12 +537,14 @@ class Rein(object):
         self.parser.add_argument('--dataset', nargs='?', default=dataset)
         self.parser.add_argument('--method', nargs='?', default=method)
         self.parser.add_argument('--task', type=str, default='rein')
-        self.parser.add_argument('--lr', type=float, default=0.0005, help='learning rate')
+        self.parser.add_argument('--lr', type=float, default=0.005, help='learning rate')
+        self.parser.add_argument('--wd', type=float, default=5e-5, help='learning rate')
         self.parser.add_argument('--patience', type=int, default=40, help='patience for early stopping')
         self.parser.add_argument('--seed', type=int, default=0, help='the seed to use')
         self.parser.add_argument('--save_root', type=str, default="./saved_model", help='root for saving the model')
         self.parser.add_argument('--random_aug_feature', type=float, default=0.2, help='RA feature')
         self.parser.add_argument('--random_aug_edge', type=float, default=0.2, help='RA graph')
+        self.parser.add_argument('--gnn', type=str, default='GCN_org', help='RA graph')
         self.args, _ = self.parser.parse_known_args()
 
     def replace(self):

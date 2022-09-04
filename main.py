@@ -99,6 +99,7 @@ def main(args):
         'nb_epochs': 3000,
         'cfg': [256, 256],
         'random_aug_feature': 0.2,
+        'batch': 128
         # 'beta': 10,
         # 'gama': 1,
         # 'knn': 5,
@@ -109,8 +110,8 @@ def main(args):
 
 
 if __name__ == '__main__':
-    task = 'Semi'  # choice:Semi Unsup Sup Rein Noise ImgCls
-    method = 'SelfCons'  # choice: Gcn ViG GDP GcnMixup SelfCons
+    task = 'Rein'  # choice:Semi Unsup Sup Rein Noise ImgCls
+    method = 'RLG'  # choice: Gcn ViG GDP GcnMixup SelfCons
     dataset = 'Cora'  # choice:Cora CiteSeer PubMed CIFAR10
     args = parse_args(task, method, dataset)
     torch.backends.cudnn.deterministic = True
