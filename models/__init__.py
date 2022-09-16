@@ -5,7 +5,9 @@ from models.Self.GMI import GMI
 from models.Self.MVGRL import MVGRL
 from models.Rein.RLGRL import RLGL
 from models.Rein.RLG import RLG
+from models.Rein.RLGDQN import RLGDQN
 from models.Rein.GDPNet import GDPNet
+from models.Rein.GDPNet2 import GDPNet2
 from models.NodeClas.Semi_GCN import GCN as Semi_GCN
 from models.NodeClas.Semi_RGCN import RGCN as Semi_RGCN
 from models.NodeClas.Semi_GCNMIXUP import GCNMIXUP
@@ -24,11 +26,13 @@ method_dict = {
 'RLGL':RLGL,
 'SGRL':SGRL,
 'RLG':RLG,
+'RLGDQN':RLGDQN,
 'SUGRL':SUGRL,
 'GMI':GMI,
 'MVGRL':MVGRL,
 'IMGCLS_VIG':IMGCLS_VIG,
 'GDP':GDPNet,
+'GDP2':GDPNet2,
 }
 
 

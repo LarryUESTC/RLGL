@@ -569,6 +569,20 @@ class Rein_GDP_Cora(Rein):
         self.args.__setattr__('method', 'GDP')
         self.args.__setattr__('dataset', 'Cora')
 
+class Rein_GDP2_Cora(Rein):
+    def __init__(self, method, dataset):
+        super(Rein_GDP2_Cora, self).__init__(method, dataset)
+        self.args, _ = self.parser.parse_known_args()
+        self.replace()
+
+    def replace(self):
+        super(Rein_GDP2_Cora, self).replace()
+        self.args.batch_size = 128
+        self.args.feature_dimension = 32
+        self.args.discount_factor = 0.95
+        self.args.__setattr__('method', 'GDP2')
+        self.args.__setattr__('dataset', 'Cora')
+
 
 ################END|Reinforcement Learning|###############
 
@@ -655,6 +669,7 @@ params_key = {
     'Unsup_Gmi': Unsup_Gmi,
     'Rein': Rein,
     'Rein_GDP_Cora': Rein_GDP_Cora,
+    'Rein_GDP2_Cora': Rein_GDP2_Cora,
     'ImgCls': ImgCls,
     'ImgCls_ViG': ImgCls_ViG,
     'ImgCls_ViG_CIFA10': ImgCls_ViG_CIFA10,

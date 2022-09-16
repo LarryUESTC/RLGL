@@ -39,7 +39,6 @@ class Discriminator(nn.Module):
 
         return logits
 
-
 def act_layer(act, inplace=False, neg_slope=0.2, n_prelu=1):
     # activation layer
 
@@ -57,7 +56,6 @@ def act_layer(act, inplace=False, neg_slope=0.2, n_prelu=1):
     else:
         raise NotImplementedError('activation layer [%s] is not found' % act)
     return layer
-
 
 class GraphConvolution(nn.Module):
     """

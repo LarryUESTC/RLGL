@@ -111,7 +111,7 @@ def main(args):
 
 if __name__ == '__main__':
     task = 'Rein'  # choice:Semi Unsup Sup Rein Noise ImgCls
-    method = 'RLG'  # choice: Gcn ViG GDP GcnMixup SelfCons
+    method = 'GDP2'  # choice: Gcn ViG GDP GcnMixup SelfCons
     dataset = 'Cora'  # choice:Cora CiteSeer PubMed CIFAR10
     args = parse_args(task, method, dataset)
     torch.backends.cudnn.deterministic = True
