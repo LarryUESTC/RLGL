@@ -580,6 +580,7 @@ class Rein_GDP2_Cora(Rein):
         self.args.batch_size = 128
         self.args.feature_dimension = 32
         self.args.discount_factor = 0.95
+        self.args.pretrain_epochs = 500
         self.args.__setattr__('method', 'GDP2')
         self.args.__setattr__('dataset', 'Cora')
 
