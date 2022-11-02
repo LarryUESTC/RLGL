@@ -15,7 +15,7 @@ import random
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
-setproctitle.setproctitle('zerorains')
+setproctitle.setproctitle('PLLL')
 
 
 # torch.autograd.set_detect_anomaly(True)
@@ -88,23 +88,31 @@ class Policy(nn.Module):
         self.fc = nn.ModuleList([])
         self.fc += nn.Sequential(
             nn.Linear(input_features * 3, layers[0], bias=bias),
-            act_layer(act)
+            act_layer(act),
+            nn.BatchNorm1d(layers[0])
         )
         for i in range(len(layers) - 1):
             self.fc += [
                 nn.Sequential(
                     nn.Linear(layers[i], layers[i + 1], bias=bias),
                     act_layer(act),
+                    nn.BatchNorm1d(layers[i + 1])
                 )
             ]
         self.fc = nn.Sequential(*self.fc)
 
         # get the lk in every node k. lk is a score, so the output is 1, state-value function
         self.get_lk = nn.Sequential(
+            nn.Linear(layers[-1], layers[-1], bias=bias),
+            act_layer(act),
+            nn.BatchNorm1d(layers[-1]),
             nn.Linear(layers[-1], 1, bias=bias)
         )
         # get the action value. action ={0,1}, so the output is 2
         self.get_action = nn.Sequential(
+            nn.Linear(layers[-1], layers[-1], bias=bias),
+            act_layer(act),
+            nn.BatchNorm1d(layers[-1]),
             nn.Linear(layers[-1], 2, bias=bias)
         )
         # use to calculate the embedding of node v
@@ -118,12 +126,15 @@ class Policy(nn.Module):
         return prob
 
     def v(self, s):
+        #todo
+        s= torch.cat([s[:, :128 * 2], s[:, 128 * 2:]*0], dim=-1)
         z = self.fc(s)
         v = self.get_lk(z)
         return v
 
     def get_reward_1(self, env_embedding_dis, consider_idx, at, adj_label):
-        reward = env_embedding_dis[[*range(0, len(consider_idx))], consider_idx] * (at*2-1)
+        reward = (env_embedding_dis[[*range(0, len(consider_idx))], consider_idx] - env_embedding_dis.mean(dim = 1)*2) \
+                 * (at*2-1)
         return reward
 
     def forward(self, adj, adj_wo_I, adj_wo_N, features, labels, env_embedding, adj_label):
@@ -142,18 +153,23 @@ class Policy(nn.Module):
         consider_idx = random.sample(list(range(0, batch_size)), batch_size)
         embeddings_consider = embeddings[consider_idx]
 
-        s = torch.cat([embeddings, embeddings_neibor, embeddings_consider], dim=1)
-        T_horizon = 5
+        s = torch.cat([embeddings, embeddings_neibor, embeddings_consider], dim=-1)
+        T_horizon = 2
+        ac_acc_list = []
         for t in range(T_horizon):
             z = self.fc(s)
             lk = self.get_action(z)
-            at_distribution = F.softmax(lk, dim=1)
+            at_distribution = F.softmax(lk, dim=-1)
             at_dist = Categorical(at_distribution)
             at = at_dist.sample()
 
             adj_env[[*range(0, batch_size)], consider_idx] = at+0.0
             adj_env_N = F.normalize(adj_env, p=1)
             rt = self.get_reward_1(env_embedding_dis, consider_idx, at, adj_label)
+
+            at_acc = ((labels == labels[consider_idx]) * at).sum() / at.sum()
+            ac_acc_list.append(at_acc)
+            print(f"A-{t}: {at_acc}/{at.sum()}|", end="")
 
             embeddings_neibor_next = torch.mm(adj_env_N, embeddings)
             #todo select self or neibor?
@@ -172,11 +188,67 @@ class Policy(nn.Module):
             embeddings_consider = embeddings_consider_next
             s = s_next
 
+        print("")
+        return
+
+
+    def evlue(self, adj, adj_wo_I, adj_wo_N, features, labels, env_embedding, adj_label):
+        # feature_origin = copy.deepcopy(features)
+
+        env_embedding_dis = get_feature_dis(env_embedding)
+        adj_env = copy.deepcopy(adj_wo_N)
+
+        embeddings = copy.deepcopy(features)  # change the feature dimension to embedding dimension
+
+        adj_env_N = F.normalize(adj_env, p=1)
+        embeddings_neibor = torch.mm(adj_env_N, embeddings)
+
+        # todo select self or neibor?
+        batch_size = features.size()[0]
+        consider_idx = random.sample(list(range(0, batch_size)), batch_size)
+        embeddings_consider = embeddings[consider_idx]
+
+        s = torch.cat([embeddings, embeddings_neibor, embeddings_consider], dim=-1)
+        T_horizon = 2
+        ac_acc_list = []
+        for t in range(T_horizon):
+            z = self.fc(s)
+            lk = self.get_action(z)
+            at_distribution = F.softmax(lk, dim=-1)
+            at_dist = Categorical(at_distribution)
+            at = at_dist.sample()
+
+            adj_env[[*range(0, batch_size)], consider_idx] = at + 0.0
+            adj_env_N = F.normalize(adj_env, p=1)
+            rt = self.get_reward_1(env_embedding_dis, consider_idx, at, adj_label)
+
+            at_acc = ((labels == labels[consider_idx]) * at).sum() / at.sum()
+            ac_acc_list.append(at_acc)
+            print(f"A-{t}: {at_acc}/{at.sum()}|", end="")
+
+            embeddings_neibor_next = torch.mm(adj_env_N, embeddings)
+            # todo select self or neibor?
+            consider_idx_next = random.sample(list(range(0, batch_size)), batch_size)
+            embeddings_consider_next = embeddings[consider_idx_next]
+            s_next = torch.cat([embeddings, embeddings_neibor_next, embeddings_consider_next], dim=1)
+
+            self.buffer.actions.append(at.detach())
+            self.buffer.states.append(s.detach())
+            self.buffer.states_next.append(s_next.detach())
+            self.buffer.logprobs.append(at_dist.log_prob(at).detach())
+            self.buffer.rewards.append(rt.detach())
+            self.buffer.is_end.append(False)
+
+            consider_idx = consider_idx_next
+            embeddings_consider = embeddings_consider_next
+            s = s_next
+
+        print("")
         return
 
 
 class GDP_Module(nn.Module):
-    def __init__(self, input_features, layers, embedding_features, n_classes=7, lr=0.005, gamma=0.99, gae_lambda=0.95,
+    def __init__(self, input_features, layers, embedding_features, n_classes=7, lr=0.0005, gamma=0.99, gae_lambda=0.95,
                  K_epoch=40, eps_clip=0.2, act='relu', device='cpu'):
         super(GDP_Module, self).__init__()
         self.gamma = gamma
@@ -201,22 +273,22 @@ class GDP_Module(nn.Module):
         self.policy.buffer.clear()
 
         return a, s, s_prime, r, prob_a
-    def update(self, adj, adj_wo_I, adj_wo_N, x, labels, env_embedding, adj_label, pretrain=False, train_index=None):
 
+    def update(self, adj, adj_wo_I, adj_wo_N, x, labels, env_embedding, adj_label, pretrain=False, train_index=None):
         self.policy(adj, adj_wo_I, adj_wo_N, x, labels, env_embedding, adj_label)  # get reward state and caction (in polic.buffer)
         a, s, s_prime, r, prob_a = self.make_batch()
-
         learning_rate = 0.0005
         gamma = 0.98
         lmbda = 0.95
         eps_clip = 0.1
         K_epoch = 5
-        T_horizon = 20
+        T_horizon = s.size()[0]
+        batch_size = s.size()[1]
 
         for i in range(K_epoch):
-            td_target = r + gamma * self.policy.v(s_prime).squeeze()
-            delta = td_target - self.policy.v(s).squeeze()
-            delta = delta.detach()
+            td_target = r.view(T_horizon*batch_size, -1) + gamma * self.policy.v(s_prime.view(T_horizon*batch_size, -1))
+            delta = td_target - self.policy.v(s.view(T_horizon*batch_size, -1))
+            delta = delta.detach().view(T_horizon, batch_size, -1)
 
             advantage_lst = []
             advantage = 0.0
@@ -224,18 +296,18 @@ class GDP_Module(nn.Module):
                 advantage = gamma * lmbda * advantage + delta_t
                 advantage_lst.append(advantage)
             advantage_lst.reverse()
-            advantage = torch.stack(advantage_lst)
+            advantage = torch.stack(advantage_lst).view(T_horizon*batch_size, -1)
             # advantage = torch.tensor(advantage_lst, dtype=torch.float)
 
-            pi = self.policy.pi(s)
-            pi_a = pi.gather(-1,a.unsqueeze(dim = -1)).squeeze()
-            ratio = torch.exp(torch.log(pi_a) - prob_a)  # a/b == exp(log(a)-log(b))
+            pi = self.policy.pi(s.view(T_horizon*batch_size, -1))
+            pi_a = pi.view(T_horizon,batch_size, -1).gather(-1,a.unsqueeze(dim = -1)).squeeze().view(T_horizon*batch_size, -1)
+            ratio = torch.exp(torch.log(pi_a) - prob_a.view(T_horizon*batch_size, -1))  # a/b == exp(log(a)-log(b))
 
             surr1 = ratio * advantage
             surr2 = torch.clamp(ratio, 1-eps_clip, 1+eps_clip) * advantage
-            loss = -torch.min(surr1, surr2) + F.smooth_l1_loss(self.policy.v(s).squeeze(), td_target.detach())
+            loss = -torch.min(surr1, surr2) + F.smooth_l1_loss(self.policy.v(s.view(T_horizon*batch_size, -1)), td_target.detach())
 
-            print(f"RL Epoch: {i} PPO Loss: {loss.mean()} ")
+            # print(f"RL Epoch: {i} PPO Loss: {loss.mean()} ")
             self.optimizer.zero_grad()
             loss.mean().backward()
             self.optimizer.step()
@@ -255,7 +327,7 @@ class GDPNet2(embedder_single):
         self.args = args
         self.fake_labels = None
         nb_classes = (self.labels.max() - self.labels.min() + 1).item()
-        self.model = GDP_Module(128, self.args.cfg, self.args.feature_dimension, act='relu',
+        self.model = GDP_Module(128, self.args.cfg, self.args.feature_dimension, act='gelu',
                                 n_classes=nb_classes, device=self.args.device).to(self.args.device)
 
         self.env_model = GNN_pre_Model(self.args.ft_size, cfg=[128, 16, nb_classes], final_mlp = 0, gnn = self.args.gnn, dropout=self.args.random_aug_feature).to(self.args.device)
@@ -293,26 +365,26 @@ class GDPNet2(embedder_single):
             reward = self.model.update(graph_org_NI, graph_org_N, graph_org, env_embedding_first, self.labels, env_embedding, adj_label, train_index=self.idx_train)
             rewards.append(reward)
 
-            if epoch % 5 == 0 and epoch != 0:
-                self.model.eval()
-                with torch.no_grad():
-                    embeds = self.model(graph_org, features)
-                    val_acc = accuracy(embeds[self.idx_val], val_lbls)
-                    test_acc = accuracy(embeds[self.idx_test], test_lbls)
-                acces.append(test_acc.item())
-                plt.plot(range(len(acces)), acces)
-                plt.savefig("acc.png")
-                plt.cla()
-                print(f"Epoch: {epoch - self.args.pretrain_epochs}  val_acc: {val_acc} test_acc: {test_acc}")
-                stop_epoch = epoch
-                if val_acc > best:
-                    best = val_acc
-                    output_acc = test_acc.item()
-                    cnt_wait = 0
-                else:
-                    cnt_wait += 1
-                    # if cnt_wait == self.args.patience:
-                    #     break
+            # if epoch % 5 == 0 and epoch != 0:
+            #     self.model.eval()
+            #     with torch.no_grad():
+            #         embeds = self.model(graph_org, features)
+            #         val_acc = accuracy(embeds[self.idx_val], val_lbls)
+            #         test_acc = accuracy(embeds[self.idx_test], test_lbls)
+            #     acces.append(test_acc.item())
+            #     plt.plot(range(len(acces)), acces)
+            #     plt.savefig("acc.png")
+            #     plt.cla()
+            #     print(f"Epoch: {epoch - self.args.pretrain_epochs}  val_acc: {val_acc} test_acc: {test_acc}")
+            #     stop_epoch = epoch
+            #     if val_acc > best:
+            #         best = val_acc
+            #         output_acc = test_acc.item()
+            #         cnt_wait = 0
+            #     else:
+            #         cnt_wait += 1
+            #         # if cnt_wait == self.args.patience:
+            #         #     break
 
         training_time = time.time() - start
         print("\t[Classification] ACC: {:.4f} | stop_epoch: {:}| training_time: {:.4f} ".format(
