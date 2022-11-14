@@ -545,6 +545,7 @@ class Rein(object):
         self.parser.add_argument('--random_aug_feature', type=float, default=0.2, help='RA feature')
         self.parser.add_argument('--random_aug_edge', type=float, default=0.2, help='RA graph')
         self.parser.add_argument('--gnn', type=str, default='GCN_org', help='RA graph')
+        self.parser.add_argument('--feature_dimension', type=int, default=32, help='learning rate')
         self.args, _ = self.parser.parse_known_args()
 
     def replace(self):
@@ -578,7 +579,6 @@ class Rein_GDP2_Cora(Rein):
     def replace(self):
         super(Rein_GDP2_Cora, self).replace()
         self.args.batch_size = 128
-        self.args.feature_dimension = 32
         self.args.discount_factor = 0.95
         self.args.pretrain_epochs = 500
         self.args.__setattr__('method', 'GDP2')
