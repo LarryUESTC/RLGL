@@ -86,7 +86,7 @@ def GNN_layer(GNN, d_in, d_out):
     if GNN == 'GCN':
         layer = GraphConv(d_in, d_out)
     elif GNN == 'GAT':
-        layer = GATConv(d_in, d_out, num_heads=5)
+        layer = GATConv(d_in, d_out, num_heads=4)
     elif GNN == 'SAGE':
         layer = SAGEConv(d_in, d_out, 'mean')
     elif GNN == 'GIN':
