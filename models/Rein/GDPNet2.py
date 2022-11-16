@@ -106,14 +106,14 @@ class Policy(nn.Module):
         self.get_lk = nn.Sequential(
             nn.Linear(layers[-1], layers[-1], bias=bias),
             act_layer(act),
-            nn.BatchNorm1d(layers[-1]),
+            # nn.BatchNorm1d(layers[-1]),
             nn.Linear(layers[-1], 1, bias=bias)
         )
         # get the action value. action ={0,1}, so the output is 2
         self.get_action = nn.Sequential(
             nn.Linear(layers[-1], layers[-1], bias=bias),
             act_layer(act),
-            nn.BatchNorm1d(layers[-1]),
+            # nn.BatchNorm1d(layers[-1]),
             nn.Linear(layers[-1], 2, bias=bias)
         )
         # use to calculate the embedding of node v
@@ -150,8 +150,13 @@ class Policy(nn.Module):
 
     def forward(self, adj, adj_wo_I, adj_wo_N, features, labels, env_embedding, adj_label, epoch, train_index):
         # feature_origin = copy.deepcopy(features)
-        env_embedding = F.softmax(env_embedding)
+
+        # var = torch.mean(torch.var(get_feature_dis(env_embedding), dim=1))
+        # env_embedding = F.softmax(env_embedding)
         env_embedding_dis = get_feature_dis(env_embedding)
+        # var_softmax = torch.mean(torch.var(env_embedding_dis, dim=1))
+
+
         adj_env = copy.deepcopy(adj_wo_N)
         # adj_env = torch.eye(adj_wo_N.size()[0]).to(adj_wo_N.device)
         embeddings = copy.deepcopy(features)  # change the feature dimension to embedding dimension
@@ -267,7 +272,7 @@ class Policy(nn.Module):
 
             at = at_distribution[:, 1].topk(k=end_neibor, dim=0, largest=True, sorted=True)[1]
             adj_env_out[consider_idx, at] = 1.0
-            adj_env_out[at, consider_idx] = 1.0
+            # adj_env_out[at, consider_idx] = 1.0
 
                 # max_idx = at_distribution[:, 1].topk(k=20, dim=0, largest=True, sorted=True)[1]
                 # at = max_idx[v[max_idx].topk(k=int(5 - num_idx.item() + 1), dim=0, largest=True, sorted=True)[1]].squeeze()
@@ -391,7 +396,8 @@ class GDPNet2(embedder_single):
 
         env_embedding, env_embedding_first = self.pre_training()
         adj_label = get_A_r(graph_org_NI, 4)
-
+        test_acc_out = 1e-9
+        end_epoch = 0
         for epoch in range(self.args.nb_epochs):
             self.model.train()
 
@@ -403,8 +409,12 @@ class GDPNet2(embedder_single):
                 adj_new = self.model(graph_org_NI, graph_org_N, graph_org, env_embedding_first, self.labels, env_embedding, adj_label, train_index=self.idx_train)
                 graph_org_torch = F.normalize(adj_new + torch.eye(adj_new.size()[0]).to(adj_new.device), p= 1)
                 # graph_org_torch = F.normalize(adj_new, p=1) + torch.eye(adj_new.size()[0]).to(adj_new.device)
-                self.evalue_graph(graph_org_torch)
+                test_acc = self.evalue_graph(graph_org_torch)
+                if test_acc_out < test_acc:
+                    test_acc_out = test_acc
+                    end_epoch = epoch
 
+        return test_acc_out, 0, end_epoch
 
     def evalue_graph(self, graph_org_torch):
         # from utils import process
@@ -450,6 +460,9 @@ class GDPNet2(embedder_single):
                 if cnt_wait == self.args.patience:
                     break
         print("\t[Classification] ACC: {:.4f} | stop_epoch: {:} ".format(output_acc, stop_epoch))
+        return output_acc
+
+
     def pre_training(self):
 
         features = self.features.to(self.args.device)
