@@ -120,11 +120,16 @@ class Policy(nn.Module):
 
         self.buffer = RecordeBuffer()
         self.candidate_index = None
-        self.adj_generate = None
+        self.A_G = None
+        self.A_G_last = None
         self.adj_label_list = []
         self.node_num = 0
         self.pre_embedding_dis = None
         self.env = None
+        self.A_N_I =None
+        self.A_N  = None
+        self.A = None
+        self.I = None
 
     def pi(self, s):
         z = self.fc(s)
@@ -154,12 +159,16 @@ class Policy(nn.Module):
         # reward +=
         return reward*100
 
-    def _init(self, node_num, pre_embedding, input_embedding, adj_label_list, env):
+    def _init(self, node_num, pre_embedding, input_embedding, adj_label_list, env, graph_org_NI, graph_org_N, graph_org):
         self.node_num = node_num
         self.pre_embedding = pre_embedding 
         self.input_embedding = input_embedding
         self.adj_label_list = adj_label_list
         self.env = env
+        self.A_N_I= graph_org_NI
+        self.A_N =graph_org_N
+        self.A = graph_org
+        self.I = torch.eye(self.node_num).to(self.env.args.device)
         self._init_nei_group()
         self._reset()
 
@@ -182,18 +191,20 @@ class Policy(nn.Module):
         return sample_list
 
     def _reset(self):
-        self.adj_generate = torch.eye(self.node_num).to(self.args.device)
+        if self.A_G is not None:
+            self.A_G_last = copy.deepcopy(self.A_G)
+        self.A_G = torch.eye(self.node_num).to(self.env.args.device)
 
-    def forward(self, adj, adj_wo_I, adj_wo_N, epoch):
+    def forward(self, epoch):
         # feature_origin = copy.deepcopy(features)
         # var = torch.mean(torch.var(get_feature_dis(pre_embedding), dim=1))
         # var_softmax = torch.mean(torch.var(pre_embedding_dis, dim=1))
-        adj_env = copy.deepcopy(adj_wo_N)
+        # A = copy.deepcopy(self.A)
         # adj_env = torch.eye(adj_wo_N.size()[0]).to(adj_wo_N.device)
         embeddings = copy.deepcopy(self.input_embedding)  # change the feature dimension to embedding dimension
 
-        adj_env_N = F.normalize(adj_env, p=1)
-        embeddings_neibor = torch.mm(adj_env_N, embeddings)
+        A_G_N = F.normalize(self.A_G, p=1)
+        embeddings_neibor = torch.mm(A_G_N, embeddings)
         #todo select self or neibor?
         # batch_size = features.size()[0]
         # consider_idx = random.sample(list(range(0, batch_size)), batch_size)
@@ -204,6 +215,7 @@ class Policy(nn.Module):
         embeddings_consider = embeddings[self.consider_idx]
 
         s = torch.cat([embeddings, embeddings_neibor, embeddings_consider], dim=-1)
+
         T_horizon = 5
         ac_acc_list = []
         if epoch % 5 == 0:
@@ -215,8 +227,8 @@ class Policy(nn.Module):
             at_dist = Categorical(at_distribution)
             at = at_dist.sample()
 
-            adj_env[[*range(0, self.node_num)], self.consider_idx] = at+0.0
-            adj_env_N = F.normalize(adj_env, p=1)
+            self.A_G[[*range(0, self.node_num)], self.consider_idx] = at+0.0
+            A_G_N = F.normalize(self.A_G, p=1)
             rt = self.get_reward_1(self.consider_idx, at)
 
             at_acc = ((self.env.labels == self.env.labels[self.consider_idx]) * at).sum() / at.sum()
@@ -226,7 +238,7 @@ class Policy(nn.Module):
             self.writer_tb.add_scalar('global_acc_'+str(t), at_acc, epoch)
             self.writer_tb.add_scalar('global_num_' + str(t), at.sum(), epoch)
 
-            embeddings_neibor_next = torch.mm(adj_env_N, embeddings)
+            embeddings_neibor_next = torch.mm(A_G_N, embeddings)
             # todo select self or neibor?
             # consider_idx_next = random.sample(list(range(0, batch_size)), batch_size)
             self.consider_idx_next = self._sampleNeigh()
@@ -243,24 +255,25 @@ class Policy(nn.Module):
             self.buffer.is_end.append(False)
 
             self.consider_idx = self.consider_idx_next
-            embeddings_consider = embeddings_consider_next
+            # embeddings_consider = embeddings_consider_next
             s = s_next
         return
 
-    def evlue(self, adj, adj_wo_I, adj_wo_N, features, labels, pre_embedding, adj_label, train_index):
+    def evlue(self):
         # feature_origin = copy.deepcopy(features)
 
         # pre_embedding_dis = get_feature_dis(pre_embedding)
-        adj_env = copy.deepcopy(adj_wo_N)
-        adj_env_out = copy.deepcopy(adj_wo_N)
-        embeddings = copy.deepcopy(features)  # change the feature dimension to embedding dimension
+        # adj_env = copy.deepcopy(adj_wo_N)
+        # adj_env_out = copy.deepcopy(adj_wo_N)
+        embeddings = copy.deepcopy(self.input_embedding)  # change the feature dimension to embedding dimension
 
-        adj_env_N = F.normalize(adj_env, p=1)
-        embeddings_neibor = torch.mm(adj_env_N, embeddings)
+        A_G_2 = F.normalize(self.A, p=1)
+        A_G_out = copy.deepcopy(self.A)
+        embeddings_neibor = torch.mm(A_G_2, embeddings)
 
         # todo select self or neibor?
-        train_index = train_index.tolist()
-        batch_size = features.size()[0]#len(train_index)
+        # train_index = train_index.tolist()
+        # batch_size = features.size()[0]#len(train_index)
         # batch_size = features.size()[0]
 
         # for consider_idx in range(batch_size):
@@ -287,22 +300,22 @@ class Policy(nn.Module):
         #         # adj_env[consider_idx, at] = 1.0
         #         # adj_env[at, consider_idx] = 1.0
 
-        for consider_idx in range(batch_size): #range(batch_size, features.size()[0]):
-            num_idx = adj_env.sum(-1)[consider_idx]
+        for consider_idx in range(self.node_num): #range(batch_size, features.size()[0]):
+            # num_idx = adj_env.sum(-1)[consider_idx]
             end_neibor = 10
 
-            embeddings_i = embeddings[consider_idx].repeat(batch_size, 1)
-            embeddings_neibor_i = embeddings_neibor[consider_idx].repeat(batch_size, 1)
+            embeddings_i = embeddings[consider_idx].repeat(self.node_num, 1)
+            embeddings_neibor_i = embeddings_neibor[consider_idx].repeat(self.node_num, 1)
             embeddings_consider_i = embeddings #[train_index]
             s = torch.cat([embeddings_i, embeddings_neibor_i, embeddings_consider_i], dim=-1)
-            s_v = torch.cat([embeddings_i, (adj_env.sum(-1)[consider_idx] * embeddings_neibor_i + embeddings_consider_i) / (1 +adj_env.sum(-1)[consider_idx]), embeddings_consider_i], dim=-1)
-            v = self.v(s_v)
+            # s_v = torch.cat([embeddings_i, (adj_env.sum(-1)[consider_idx] * embeddings_neibor_i + embeddings_consider_i) / (1 +adj_env.sum(-1)[consider_idx]), embeddings_consider_i], dim=-1)
+            # v = self.v(s_v)
             z = self.fc(s)
             lk = self.get_action(z)
             at_distribution = F.softmax(lk, dim=-1)
 
             at = at_distribution[:, 1].topk(k=end_neibor, dim=0, largest=True, sorted=True)[1]
-            adj_env_out[consider_idx, at] = 1.0
+            A_G_out[consider_idx, at] = 1.0
             # adj_env_out[at, consider_idx] = 1.0
 
                 # max_idx = at_distribution[:, 1].topk(k=20, dim=0, largest=True, sorted=True)[1]
@@ -312,7 +325,7 @@ class Policy(nn.Module):
 
         # adj_env_N = F.normalize(adj_env, p=1)
 
-        return adj_env_out
+        return A_G_out
 
 
 class GDP_Module(nn.Module):
@@ -342,8 +355,10 @@ class GDP_Module(nn.Module):
 
         return a, s, s_prime, r, prob_a
 
-    def update(self, adj, adj_wo_I, adj_wo_N,  epoch):
-        self.policy(adj, adj_wo_I, adj_wo_N,  epoch)  # get reward state and caction (in polic.buffer)
+    def update(self, epoch):
+        if epoch% 5 == 0:
+            self.policy._reset()
+        self.policy(epoch)  # get reward state and caction (in polic.buffer)
         a, s, s_prime, r, prob_a = self.make_batch()
         learning_rate = 0.0005
         gamma = 0.98
@@ -382,8 +397,9 @@ class GDP_Module(nn.Module):
 
         return
 
-    def forward(self, adj, adj_wo_I, adj_wo_N):
-        adj_new = self.policy.evlue(adj, adj_wo_I, adj_wo_N)
+    def forward(self):
+        # adj_new = self.policy.evlue()
+        adj_new = self.policy.A_G_last
         return adj_new
 
 
@@ -432,20 +448,20 @@ class GDPNet2(embedder_single):
             adj_label = get_A_r(graph_org_NI, d)
             adj_label_list.append(adj_label)
         node_num = pre_embedding.size()[0]
-        self.model.policy._init(node_num, pre_embedding, input_embedding, adj_label_list, self)
+        self.model.policy._init(node_num, pre_embedding, input_embedding, adj_label_list, self, graph_org_NI, graph_org_N, graph_org)
 
         test_acc_out = 1e-9
         end_epoch = 0
         for epoch in range(self.args.nb_epochs):
             self.model.train()
-            reward = self.model.update(graph_org_NI, graph_org_N, graph_org,  epoch)
+            reward = self.model.update(epoch)
             rewards.append(reward)
 
             if epoch % 20 == 0 and epoch != 0:
                 self.model.eval()
-                adj_new = self.model(graph_org_NI, graph_org_N, graph_org, self.labels, train_index=self.idx_train)
-                graph_org_torch = F.normalize(adj_new + torch.eye(adj_new.size()[0]).to(adj_new.device), p= 1)
-                # graph_org_torch = F.normalize(adj_new, p=1) + torch.eye(adj_new.size()[0]).to(adj_new.device)
+                adj_new = self.model()
+                # graph_org_torch = F.normalize(adj_new + torch.eye(adj_new.size()[0]).to(adj_new.device), p= 1)
+                graph_org_torch = F.normalize(adj_new, p=1) + torch.eye(adj_new.size()[0]).to(adj_new.device)
                 test_acc = self.evalue_graph(graph_org_torch)
                 if test_acc_out < test_acc:
                     test_acc_out = test_acc
