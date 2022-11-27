@@ -144,8 +144,15 @@ class Policy(nn.Module):
         v = self.get_lk(z)
         return v
 
+    def get_reward_0(self,  consider_idx, at, adj_id):
+        this_adj = (self.adj_label_list[adj_id] > 0) + 0
+        avg = this_adj.sum(dim=1) / (this_adj > 0).sum(dim=1)
+        reward = (this_adj[[*range(0, len(consider_idx))], consider_idx] - avg*0.2) * (at*2-1)
+        return reward
+
+
     def get_reward_1(self,  consider_idx, at):
-        reward = (self.pre_embedding_dis[[*range(0, len(consider_idx))], consider_idx] - self.pre_embedding_dis.mean(dim = 1)*1.5) \
+        reward = (self.pre_embedding_dis[[*range(0, len(consider_idx))], consider_idx] - self.pre_embedding_dis.mean(dim = 1)) \
                  * (at*2-1)
         return reward
 
@@ -216,7 +223,7 @@ class Policy(nn.Module):
 
         s = torch.cat([embeddings, embeddings_neibor, embeddings_consider], dim=-1)
 
-        T_horizon = 5
+        T_horizon = 4
         ac_acc_list = []
         if epoch % 5 == 0:
             print(f"\n Epoch {epoch}", end="")
@@ -229,12 +236,11 @@ class Policy(nn.Module):
 
             self.A_G[[*range(0, self.node_num)], self.consider_idx] = at+0.0
             A_G_N = F.normalize(self.A_G, p=1)
-            rt = self.get_reward_1(self.consider_idx, at)
-
-            at_acc = ((self.env.labels == self.env.labels[self.consider_idx]) * at).sum() / at.sum()
+            rt = self.get_reward_0(self.consider_idx, at, t)
+            at_acc = 100 *  ((self.env.labels == self.env.labels[self.consider_idx]) * at).sum() / at.sum()
             ac_acc_list.append(at_acc)
             if epoch%5==0:
-                print(f"A-{t}: {at_acc}/{at.sum()}|", end="")
+                print("A-{}: {:.2f}/{}|".format(t, at_acc, at.sum()), end="")
             self.writer_tb.add_scalar('global_acc_'+str(t), at_acc, epoch)
             self.writer_tb.add_scalar('global_num_' + str(t), at.sum(), epoch)
 
@@ -356,7 +362,7 @@ class GDP_Module(nn.Module):
         return a, s, s_prime, r, prob_a
 
     def update(self, epoch):
-        if epoch% 5 == 0:
+        if epoch% 2 == 0:
             self.policy._reset()
         self.policy(epoch)  # get reward state and caction (in polic.buffer)
         a, s, s_prime, r, prob_a = self.make_batch()
@@ -460,8 +466,8 @@ class GDPNet2(embedder_single):
             if epoch % 20 == 0 and epoch != 0:
                 self.model.eval()
                 adj_new = self.model()
-                # graph_org_torch = F.normalize(adj_new + torch.eye(adj_new.size()[0]).to(adj_new.device), p= 1)
-                graph_org_torch = F.normalize(adj_new, p=1) + torch.eye(adj_new.size()[0]).to(adj_new.device)
+                graph_org_torch = F.normalize(adj_new , p= 1)
+                # graph_org_torch = F.normalize(adj_new, p=1) + torch.eye(adj_new.size()[0]).to(adj_new.device)
                 test_acc = self.evalue_graph(graph_org_torch)
                 if test_acc_out < test_acc:
                     test_acc_out = test_acc
