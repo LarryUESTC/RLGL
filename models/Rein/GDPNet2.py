@@ -54,6 +54,13 @@ def get_A_r(adj, r):
 
     return adj_label
 
+def calc_entropy(input_tensor):
+    lsm = nn.LogSoftmax()
+    log_probs = lsm(input_tensor)
+    probs = torch.exp(log_probs)
+    p_log_p = log_probs * probs
+    entropy = -p_log_p.sum(dim = 1)
+    return entropy
 
 def get_feature_dis(x):
     """
@@ -120,6 +127,8 @@ class Policy(nn.Module):
 
         self.buffer = RecordeBuffer()
         self.candidate_index = None
+        self.candidate_baseline = None
+        self.candidate_index_reverse = None
         self.A_G = None
         self.A_G_last = None
         self.adj_label_list = []
@@ -145,9 +154,15 @@ class Policy(nn.Module):
         return v
 
     def get_reward_0(self,  consider_idx, at, adj_id):
-        this_adj = (self.adj_label_list[adj_id] > 0) + 0
-        avg = this_adj.sum(dim=1) / (this_adj > 0).sum(dim=1)
-        reward = (this_adj[[*range(0, len(consider_idx))], consider_idx] - avg*0.2) * (at*2-1)
+        if adj_id >= 3:
+            this_adj = self.pre_embedding_dis
+            # avg = this_adj.mean(dim = 1)
+            avg = self.candidate_baseline *0.9
+            reward = (this_adj[[*range(0, len(consider_idx))], consider_idx] - avg) * (at * 2 - 1)
+        else:
+            this_adj = (self.adj_label_list[-1] > 0) + 0
+            avg = this_adj.sum(dim=1) / (this_adj > 0).sum(dim=1)
+            reward = (this_adj[[*range(0, len(consider_idx))], consider_idx] - avg*0.2) * (at*2-1)
         return reward
 
 
@@ -180,16 +195,22 @@ class Policy(nn.Module):
         self._reset()
 
     def _init_nei_group(self):
-        pre_embedding = F.softmax(self.pre_embedding)
+        # pre_embedding = F.softmax(self.pre_embedding)
+        pre_embedding = self.pre_embedding
         pre_embedding_dis = get_feature_dis(pre_embedding)
         self.pre_embedding_dis = pre_embedding_dis
-        value, candidate_index = torch.topk(pre_embedding_dis, k=50, dim=-1, largest=True)
+        topk = 100
+
+        value, candidate_index = torch.topk(pre_embedding_dis, k=topk, dim=-1, largest=True)
         self.candidate_index = candidate_index.tolist()
+        self.candidate_baseline = value[:,-1]
+        value, candidate_index = torch.topk(pre_embedding_dis, k=topk, dim=-1, largest=False)
+        self.candidate_index_reverse = candidate_index.tolist()
 
     def _sampleNeigh(self):
         sample_list = []
         for i in range(self.node_num):
-            index_TABLE = self.candidate_index[i]
+            index_TABLE = self.candidate_index[i] + self.candidate_index_reverse[i]
             sample_index = i
             while sample_index == i:  # 不让它取自己
                 sample_index = random.choice(index_TABLE)
@@ -223,7 +244,7 @@ class Policy(nn.Module):
 
         s = torch.cat([embeddings, embeddings_neibor, embeddings_consider], dim=-1)
 
-        T_horizon = 4
+        T_horizon = 5
         ac_acc_list = []
         if epoch % 5 == 0:
             print(f"\n Epoch {epoch}", end="")
@@ -236,7 +257,7 @@ class Policy(nn.Module):
 
             self.A_G[[*range(0, self.node_num)], self.consider_idx] = at+0.0
             A_G_N = F.normalize(self.A_G, p=1)
-            rt = self.get_reward_0(self.consider_idx, at, t)
+            rt = self.get_reward_0(self.consider_idx, at, adj_id= 4)
             at_acc = 100 *  ((self.env.labels == self.env.labels[self.consider_idx]) * at).sum() / at.sum()
             ac_acc_list.append(at_acc)
             if epoch%5==0:
@@ -448,6 +469,7 @@ class GDPNet2(embedder_single):
         # pre_optimizer = torch.optim.Adam(pre_model.parameters(), lr=0.0005, weight_decay=0.0005)
 
         pre_embedding, input_embedding = self.pre_training()
+        pre_embedding_entropy = calc_entropy(pre_embedding)
         adj_label_list = []
         # adj_label_list.append(graph_org_NI)
         for d in range(1,5):
@@ -466,9 +488,10 @@ class GDPNet2(embedder_single):
             if epoch % 20 == 0 and epoch != 0:
                 self.model.eval()
                 adj_new = self.model()
-                graph_org_torch = F.normalize(adj_new , p= 1)
+                graph_org_torch = F.normalize(adj_new , p= 1) + self.adj_list[0].to(self.args.device)
                 # graph_org_torch = F.normalize(adj_new, p=1) + torch.eye(adj_new.size()[0]).to(adj_new.device)
                 test_acc = self.evalue_graph(graph_org_torch)
+                self.model.policy.writer_tb.add_scalar('Eva_acc', test_acc, epoch)
                 if test_acc_out < test_acc:
                     test_acc_out = test_acc
                     end_epoch = epoch
@@ -478,7 +501,7 @@ class GDPNet2(embedder_single):
     def evalue_graph(self, graph_org_torch):
         # from utils import process
         # graph_org_torch = process.torch2dgl(graph_org_torch).to(self.args.device)
-        env_model = GNN_Model(self.args.ft_size, cfg=[16, 16, self.nb_classes], final_mlp=0, gnn='GCN_org',
+        env_model = GNN_Model(self.args.ft_size, cfg=[16,  self.nb_classes], final_mlp=0, gnn='GCN_org',
                               dropout=self.args.random_aug_feature).to(self.args.device)
         features = self.features.to(self.args.device)
         optimiser = torch.optim.Adam(env_model.parameters(), lr=0.01, weight_decay=5e-4)
