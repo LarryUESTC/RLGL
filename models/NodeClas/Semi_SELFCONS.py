@@ -11,6 +11,10 @@ import torch
 import torch.nn as nn
 import math
 import copy
+from tensorboardX import SummaryWriter
+import setproctitle
+setproctitle.setproctitle('PLLL')
+from datetime import datetime
 
 def get_A_r(adj, r):
     adj_label = adj
@@ -50,6 +54,27 @@ def splite_nerbor(adj, max_num = 10):
         torch.nonzero(torch.where(number_neibor >= max_num, number_neibor_one, number_neibor_zero)).squeeze())
     return number_neibor_list
 
+class RecordeBuffer:
+    def __init__(self):
+        self.psudo_labels = []
+        self.entropy = []
+        self.lenth = 0
+    def clear(self):
+        del self.psudo_labels[:]
+        del self.entropy[:]
+    def update(self):
+        self.lenth = len(self.psudo_labels)
+        if self.lenth > 100:
+            del self.psudo_labels[0]
+            del self.entropy[0]
+
+def calc_entropy(input_tensor):
+    lsm = nn.LogSoftmax()
+    log_probs = lsm(input_tensor, dim=-1)
+    probs = torch.exp(log_probs)
+    p_log_p = log_probs * probs
+    entropy = -p_log_p.sum(-1)
+    return entropy
 
 def get_clones(module, N):
     return nn.ModuleList([copy.deepcopy(module) for i in range(N)])
@@ -163,7 +188,7 @@ class EncoderLayer(nn.Module):
         return x
 
 class GAT_selfCon_Trans(nn.Module):
-    def __init__(self, n_in ,cfg = None, batch_norm=True, act='leakyrelu', dropout = 0.2, final_mlp = 0, nheads = 4, Trans_layer_num = 2):
+    def __init__(self, n_in ,cfg = None, batch_norm=True, act='leakyrelu', dropout = 0.2, final_mlp = 0, nb_classes = 7,nheads = 4, Trans_layer_num = 2):
         super(GAT_selfCon_Trans, self).__init__()
         self.dropout = dropout
         self.bat = batch_norm
@@ -172,9 +197,9 @@ class GAT_selfCon_Trans(nn.Module):
         self.cfg = cfg
         self.Trans_layer_num = Trans_layer_num
         self.nheads = nheads
-        self.nclass = cfg[-1] if final_mlp == 0 else final_mlp
-        self.hid_dim= cfg[-2] if final_mlp == 0 else cfg[-1]
-        self.layer_num = len(self.cfg)
+        self.nclass = nb_classes #cfg[-1] if final_mlp == 0 else final_mlp
+        self.hid_dim= cfg[-1] #if final_mlp == 0 else cfg[-1]
+        self.layer_num = len(self.cfg) #- 1 if final_mlp == 0 else cfg[-1]
         MLP_layers = []
         act_layers = []
         bat_layers = []
@@ -207,14 +232,22 @@ class GAT_selfCon_Trans(nn.Module):
 
     def forward(self, x_input, adj=None):
 
-        x_input = self.norm_layers[0](x_input)
-        x = self.MLP_layers[0](x_input)
-        x = F.dropout(x, self.dropout, training=self.training)
+        x = self.norm_layers[0](x_input)
+        for i in range(len(self.MLP_layers)):
+            x = F.dropout(x, self.dropout, training=self.training)
+            x = self.MLP_layers[i](x)
+            x = self.act_layers[i](x)
+            x = self.norm_layers[i+1](x)
 
-        x_dis = get_feature_dis(self.norm_layers[-2](x))
+        x_dis = get_feature_dis(x)
+
+
+        # x_dis = get_feature_dis(self.norm_layers[-2](x))
 
         for i in range(self.Trans_layer_num):
             x = self.layers[i](x)
+
+        # x_dis = get_feature_dis(x)
 
         D_dim_single = int(self.hid_dim/self.nheads)
         CONN_INDEX = torch.zeros((x.shape[0],self.nclass)).to(x.device)
@@ -225,6 +258,7 @@ class GAT_selfCon_Trans(nn.Module):
             # CONN_INDEX += F.softmax(Linear_out_one - Linear_out_one.sort(descending= True)[0][:,3].unsqueeze(1), dim=1)
             CONN_INDEX += F.softmax(Linear_out_one, dim=1)
 
+        # x_dis = get_feature_dis(CONN_INDEX)
 
         return F.log_softmax(CONN_INDEX, dim=1), x_dis
 
@@ -236,9 +270,15 @@ class SELFCONS(embedder_single):
         self.cfg = args.cfg
 
         nb_classes = (self.labels.max() - self.labels.min() + 1).item()
-        self.cfg.append(nb_classes)
-        self.model = GAT_selfCon_Trans(self.args.ft_size, cfg=self.cfg, final_mlp = 0, dropout=self.args.random_aug_feature, nheads=self.args.nheads, Trans_layer_num =self.args.Trans_layer_num).to(self.args.device)
+        # self.cfg.append(nb_classes)
+        self.model = GAT_selfCon_Trans(self.args.ft_size, cfg=self.cfg, final_mlp = 0, nb_classes = nb_classes,
+                                       dropout=self.args.random_aug_feature, nheads=self.args.nheads,
+                                       Trans_layer_num =self.args.Trans_layer_num).to(self.args.device)
 
+        current_time = datetime.now().strftime('%b%d_%H-%M:%S')
+        logdir = os.path.join('runs2', current_time + '_selfcons_'+ str(self.args.seed))
+        self.buffer = RecordeBuffer()
+        self.writer_tb = SummaryWriter(log_dir = logdir)
     def training(self):
 
         features = self.features.to(self.args.device)
@@ -272,7 +312,8 @@ class SELFCONS(embedder_single):
             adj_label = get_A_r(graph_org_torch, i)
             adj_label_list.append(adj_label)
 
-        adj_label = adj_label_list[-2]
+        adj_label = adj_label_list[0]
+        # adj_label = F.normalize((adj_label_list[-2] > 0) + 0.0, p =1 )
         for epoch in range(self.args.nb_epochs):
             self.model.train()
             optimiser.zero_grad()
@@ -280,16 +321,24 @@ class SELFCONS(embedder_single):
 
             input_feature = features
             embeds, x_dis = self.model(input_feature)
-
+            self.buffer.psudo_labels.append(embeds.detach())
+            self.buffer.entropy.append(calc_entropy(embeds).detach())
+            # adj_g = get_feature_dis(embeds).detach()
+            # N = adj_g.shape[0]
+            # maxadj = torch.topk(adj_g, k=30, dim=1, sorted=False, largest=True).values[:, -1].view(N, 1).repeat(1, N)
+            # adj_g = adj_g * ((adj_g >= maxadj) + 0)
+            # adj_g = adj_g@graph_org_torch
             embeds_preds = torch.argmax(embeds, dim=1)
             train_embs = embeds[self.idx_train]
             val_embs = embeds[self.idx_val]
             test_embs = embeds[self.idx_test]
 
-            loss_Ncontrast = Ncontrast(x_dis, adj_label, tau=self.args.tau)
-
-            loss = F.cross_entropy(train_embs, train_lbls) + loss_Ncontrast* self.args.beta
+            loss_Ncontrast = self.args.beta * Ncontrast(x_dis, adj_label, tau=self.args.tau)
+            loss_ce = F.cross_entropy(train_embs, train_lbls)
+            loss =  loss_ce + loss_Ncontrast
             # loss = loss_cls + loss_Ncontrast * self.args.beta
+            self.writer_tb.add_scalar('loss_ce', loss_ce.item(), epoch)
+            self.writer_tb.add_scalar('loss_Ncontrast', loss_Ncontrast.item(), epoch)
 
             loss.backward()
             totalL.append(loss.item())
@@ -301,6 +350,8 @@ class SELFCONS(embedder_single):
                 embeds, _ = self.model(features)
                 val_acc = accuracy(embeds[self.idx_val], val_lbls)
                 test_acc = accuracy(embeds[self.idx_test], test_lbls)
+                self.writer_tb.add_scalar('Test_acc', test_acc, epoch)
+                self.writer_tb.add_scalar('val_acc', val_acc, epoch)
                 # print(test_acc.item())
                 # for test_ind in number_neibor_list:
                 #     test_acc_ind = accuracy(embeds[test_ind], self.labels[test_ind])
