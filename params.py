@@ -13,9 +13,10 @@ class Semi(object):
         self.parser.add_argument('--patience', type=int, default=40, help='patience for early stopping')
         self.parser.add_argument('--seed', type=int, default=0, help='the seed to use')
         self.parser.add_argument('--save_root', type=str, default="./saved_model", help='root for saving the model')
-        self.parser.add_argument('--random_aug_feature', type=float, default=0.2, help='RA feature')
+        self.parser.add_argument('--random_aug_feature', type=float, default=0.1, help='RA feature')
         self.parser.add_argument('--random_aug_edge', type=float, default=0.2, help='RA graph')
-        self.parser.add_argument('--gpu_num', type=int, default=6, help='the id of gpu to use')
+        self.parser.add_argument('--gpu_num', type=int, default=2, help='the id of gpu to use')
+
         self.args, _ = self.parser.parse_known_args()
 
     def replace(self):
@@ -41,6 +42,27 @@ class Semi_Gcn(Semi):
         super(Semi_Gcn, self).replace()
         self.args.__setattr__('method', 'SEMI_GCN')
         self.args.__setattr__('lr', 0.05)
+
+class Semi_GcnCR(Semi):
+    def __init__(self, method, dataset):
+        super(Semi_GcnCR, self).__init__(method, dataset)
+        ################STA|add new params here|###############
+        # self.parser.add_argument('--random_aug_edge', type=float, default=0.2, help='RA graph')
+        self.parser.add_argument('--cfg', type=list, default=[16, 16])
+        self.parser.add_argument('--wd', type=int, default=5e-4, help='weight delay')
+        self.parser.add_argument('--nb_epochs', type=int, default=1000)
+        self.parser.add_argument('--gnn', type=str, default='GCN_org', help='gnn model')
+        ################END|add new params here|###############
+        self.args, _ = self.parser.parse_known_args()
+
+        ################STA|replace params here|###############
+        self.replace()
+        ################END|replace params here|###############
+
+    def replace(self):
+        super(Semi_GcnCR, self).replace()
+        self.args.__setattr__('method', 'SEMI_GCNCR')
+        self.args.__setattr__('lr', 0.01)
 
 class Semi_RGcn(Semi):
     def __init__(self, method, dataset):
@@ -87,6 +109,8 @@ class Semi_SelfCons(Semi):
         self.parser.add_argument('--wd', type=int, default=5e-5, help='weight delay')
         self.parser.add_argument('--tau', type=int, default=1.0, help='tau for Ncontrastive')
         self.parser.add_argument('--gnn', type=str, default='GCN', help='gnn model')
+        self.parser.add_argument('--nb_epochs', type=int, default=1000)
+        self.parser.add_argument('--cfg', type=list, default=[128, 128])
         ################END|add new params here|###############
         self.args, _ = self.parser.parse_known_args()
 
@@ -100,18 +124,29 @@ class Semi_SelfCons(Semi):
         self.args.__setattr__('lr', 0.0005)
         self.args.__setattr__('patience', 300)
 
+class Semi_SelfCons_Cora(Semi_SelfCons):
+    def __init__(self, method, dataset):
+        super(Semi_SelfCons, self).__init__(method, dataset)
+        self.args, _ = self.parser.parse_known_args()
 
+        self.replace()
+
+    def replace(self):
+        super(Semi_SelfCons_Cora, self).replace()
+        self.args.__setattr__('dataset', 'Cora')
 
 class Semi_Gcn_Cora(Semi_Gcn):
     def __init__(self, method, dataset):
         super(Semi_Gcn, self).__init__(method, dataset)
         self.args, _ = self.parser.parse_known_args()
+
         self.replace()
 
     def replace(self):
         super(Semi_Gcn_Cora, self).replace()
         self.args.__setattr__('dataset', 'Cora')
         self.args.__setattr__('lr', 0.01)
+
 
 
 ################END|Semi-supervised Task|###############
@@ -647,6 +682,7 @@ class ImgCls_ViG_CIFA10(ImgCls_ViG):
 params_key = {
     'Semi': Semi,
     'Semi_Gcn': Semi_Gcn,
+    'Semi_GcnCR': Semi_GcnCR,
     'Semi_RGcn': Semi_RGcn,
     'Semi_SelfCons': Semi_SelfCons,
     'Semi_Gcn_Cora': Semi_Gcn_Cora,
