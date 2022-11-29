@@ -58,13 +58,13 @@ def main_one(config, checkpoint_dir=None):
     current_args.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     ACC_seed = []
     Time_seed = []
-    for seed in range(2020, 2024):
+    for seed in range(0, 5):
 
         np.random.seed(seed)
         torch.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
         random.seed(seed)
-
+        current_args.seed = seed
         method_fun = models.getmodel(current_args.method)
         embedder = method_fun(copy.deepcopy(current_args))
 
@@ -96,10 +96,10 @@ def main(args):
     # param set
     ################STA|set tune param|###############
     config = {
-        'nb_epochs': 3000,
-        'cfg': [256, 256],
-        'random_aug_feature': 0.2,
-        'batch': 128
+        # 'nb_epochs': 1000,
+        # 'cfg': [128, 128],
+        # 'random_aug_feature': 0.2,
+        # 'batch': 128
         # 'beta': 10,
         # 'gama': 1,
         # 'knn': 5,
@@ -110,8 +110,8 @@ def main(args):
 
 
 if __name__ == '__main__':
-    task = 'Rein'  # choice:Semi Unsup Sup Rein Noise ImgCls
-    method = 'GDP2'  # choice: Gcn ViG GDP GcnMixup SelfCons
+    task = 'Semi'  # choice:Semi Unsup Sup Rein Noise ImgCls
+    method = 'SelfCons'  # choice: Gcn ViG GDP GcnMixup SelfCons GcnCR
     dataset = 'Cora'  # choice:Cora CiteSeer PubMed CIFAR10
     args = parse_args(task, method, dataset)
     torch.backends.cudnn.deterministic = True
