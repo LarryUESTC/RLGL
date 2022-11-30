@@ -8,6 +8,7 @@ from models.Rein.RLG import RLG
 from models.Rein.RLGDQN import RLGDQN
 from models.Rein.GDPNet import GDPNet
 from models.Rein.GDPNet2 import GDPNet2
+from models.Rein.offlineRLG import offlineRLG
 from models.NodeClas.Semi_GCN import GCN as Semi_GCN
 from models.NodeClas.Semi_RGCN import RGCN as Semi_RGCN
 from models.NodeClas.Semi_GCNMIXUP import GCNMIXUP
@@ -26,6 +27,7 @@ method_dict = {
 'SUP_GCN':Sup_GCN,
 'GCNMIXUP': GCNMIXUP,
 'RLGL':RLGL,
+'OFFLINERLG':offlineRLG,
 'SGRL':SGRL,
 'RLG':RLG,
 'RLGDQN':RLGDQN,
