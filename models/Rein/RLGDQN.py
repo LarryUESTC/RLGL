@@ -1,20 +1,51 @@
-import time
-from models.embedder import embedder_single
-from evaluate import accuracy
-from models.Layers import Env_Net_RLG, act_layer, GNN_Model
-import numpy as np
-import random as random
-import torch.nn.functional as F
 import torch
-import torch.nn as nn
-import math
-from collections import defaultdict
+import time
+import numpy as np
+import copy
+from models.embedder import embedder_single
+from torch import nn
+from torch.nn import functional as F
+from torch.distributions import Categorical
+from models.Layers import act_layer, GNN_Model, GNN_pre_Model
+# from models.NodeClas.Semi_SELFCONS import GAT_selfCon_Trans
+from models.Rein.RLG import KDloss_0
+from evaluate import accuracy
+import setproctitle
+import random
+import matplotlib.pyplot as plt
+from tqdm import tqdm
+from tensorboardX import SummaryWriter
 
-np.random.seed(0)
-torch.backends.cudnn.deterministic = True
-torch.manual_seed(0)
-torch.cuda.manual_seed_all(0)
-random.seed(0)
+setproctitle.setproctitle('PLLL')
+
+
+# torch.autograd.set_detect_anomaly(True)
+
+
+class RecordeBuffer:
+    def __init__(self):
+        self.actions = []
+        self.states = []
+        self.states_next = []
+        self.logprobs = []
+        self.rewards = []
+        self.values = []
+        self.is_end = []
+
+    def clear(self):
+        del self.actions[:]
+        del self.states[:]
+        del self.states_next[:]
+        del self.logprobs[:]
+        del self.rewards[:]
+        del self.is_end[:]
+        del self.values[:]
+
+
+def fc(x, lb):
+    # TODO: the fc function in Eq.5
+    return x.argmax(dim=-1).eq(lb).sum()
+
 
 def get_A_r(adj, r):
     adj_label = adj
@@ -23,223 +54,366 @@ def get_A_r(adj, r):
 
     return adj_label
 
-def Ncontrast(x_dis, adj_label, tau = 1):
-    x_dis = torch.exp(tau * x_dis)
-    x_dis_sum = torch.sum(x_dis, 1)
-    x_dis_sum_pos = torch.sum(x_dis*adj_label, 1)
-    loss = -torch.log(x_dis_sum_pos * (x_dis_sum**(-1))+1e-8).mean()
-    return loss
-
-def KDloss_0( y, teacher_scores):
-    T = 4
-    p = F.log_softmax(y / T, dim=1)
-    q = F.softmax(teacher_scores / T, dim=1)
-    l_kl = F.kl_div(p, q, size_average=False) * (T ** 2) / y.shape[0]
-    return l_kl
-
-def get_log_likelihood(_log_p, pi):
-    """	args:
-        _log_p: (batch, city_t, city_t)
-        pi: (batch, city_t), predicted tour
-        return: (batch)
-    """
-    log_p = torch.gather(input=_log_p, dim=2, index=pi[:, :, None]).squeeze(-1)
-
-    # index_truncation = torch.max(pi, 1)[1]
-    # mask = torch.zeros((log_p.shape[0], log_p.shape[1] + 1), dtype=log_p.dtype, device=log_p.device)
-    # mask[(torch.arange(log_p.shape[0]), index_truncation + 1)] = 1
-    # mask = mask.cumsum(dim=1)[:, :-1]  # remove the superfluous column
-    # log_p = log_p * (1. - mask)  # use mask to zero after each column
-    # return torch.div(torch.sum(log_p.squeeze(-1), 1), index_truncation + 1)
-
-    return torch.mean(log_p.squeeze(-1), 1)
-
-class Categorical(nn.Module):
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, log_p):
-        return torch.multinomial(log_p.exp(), 1).long().squeeze(1)
 
 def get_feature_dis(x):
     """
     x :           batch_size x nhid
     x_dis(i,j):   item means the similarity between x(i) and x(j).
     """
-    x_dis = x@x.T
-    mask = torch.eye(x_dis.shape[0]).cuda()
-    x_sum = torch.sum(x**2, 1).reshape(-1, 1)
+    x_dis = x @ x.T
+    mask = torch.eye(x_dis.shape[0]).to(x.device)
+    x_sum = torch.sum(x ** 2, 1).reshape(-1, 1)
     x_sum = torch.sqrt(x_sum).reshape(-1, 1)
     x_sum = x_sum @ x_sum.T
-    x_dis = x_dis*(x_sum**(-1))
-    x_dis = (1-mask) * x_dis
+    x_dis = x_dis * (x_sum ** (-1))
+    x_dis = (1 - mask) * x_dis
     return x_dis
 
-class Norm(nn.Module):
-    def __init__(self, d_model, eps=1e-6):
-        super().__init__()
 
-        self.size = d_model
-
-        # create two learnable parameters to calibrate normalisation
-        self.alpha = nn.Parameter(torch.ones(self.size))
-        self.bias = nn.Parameter(torch.zeros(self.size))
-
-        self.eps = eps
-
-    def forward(self, x):
-        norm = self.alpha * (x - x.mean(dim=-1, keepdim=True)) \
-               / (x.std(dim=-1, keepdim=True) + self.eps) + self.bias
-        return norm
-
-class FeedForward(nn.Module):
-    def __init__(self, d_model, d_ff=2048, dropout=0.1):
-        super().__init__()
-
-        # We set d_ff as a default to 2048
-        self.linear_1 = nn.Linear(d_model, d_ff)
-        self.dropout = nn.Dropout(dropout)
-        self.linear_2 = nn.Linear(d_ff, d_model)
-
-    def forward(self, x):
-        x = self.dropout(F.relu(self.linear_1(x)))
-        x = self.linear_2(x)
-        return x
+def Ncontrast(x_dis, adj_label, tau=1.):
+    x_dis = torch.exp(tau * x_dis)
+    x_dis_sum = torch.sum(x_dis, 1)
+    x_dis_sum_pos = torch.sum(x_dis * adj_label, 1)
+    loss = -torch.log(x_dis_sum_pos * (x_dis_sum ** (-1)) + 1e-8).mean()
+    return loss
 
 
-def attention(q, k, v, d_k, mask=None, dropout=None):
-    scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(d_k)
-    # scores = torch.where(scores > 1.1 * scores.mean(), scores, torch.zeros_like(scores))
+class Policy(nn.Module):
+    def __init__(self, input_features, layers, embedding_features, n_classes=7, bias=True, act='relu', device='cpu'):
+        super(Policy, self).__init__()
+        self.device = device
+        self.input_features = input_features
+        self.embedding_features = embedding_features
+        self.ending_idx = -233
+        self.writer_tb = SummaryWriter()
+        self.fc = nn.ModuleList([])
+        self.fc += nn.Sequential(
+            nn.Linear(input_features * 3, layers[0], bias=bias),
+            act_layer(act),
+            nn.BatchNorm1d(layers[0])
+        )
+        for i in range(len(layers) - 1):
+            self.fc += [
+                nn.Sequential(
+                    nn.Linear(layers[i], layers[i + 1], bias=bias),
+                    act_layer(act),
+                    nn.BatchNorm1d(layers[i + 1])
+                )
+            ]
+        self.fc = nn.Sequential(*self.fc)
 
-    if mask is not None:
-        mask = mask.unsqueeze(0)
-        scores = scores.masked_fill(mask, -1e9)
+        # get the lk in every node k. lk is a score, so the output is 1, state-value function
+        self.get_lk = nn.Sequential(
+            nn.Linear(layers[-1], layers[-1], bias=bias),
+            act_layer(act),
+            nn.BatchNorm1d(layers[-1]),
+            nn.Linear(layers[-1], 1, bias=bias)
+        )
+        # get the action value. action ={0,1}, so the output is 2
+        self.get_action = nn.Sequential(
+            nn.Linear(layers[-1], layers[-1], bias=bias),
+            act_layer(act),
+            nn.BatchNorm1d(layers[-1]),
+            nn.Linear(layers[-1], 2, bias=bias)
+        )
+        # use to calculate the embedding of node v
 
-    scores = F.softmax(scores, dim=-1)
-    # scores = torch.where(scores > scores.mean(), scores, torch.zeros_like(scores))
-    # scores = F.softmax(scores, dim=-1)
+        self.buffer = RecordeBuffer()
 
-    if dropout is not None:
-        scores = dropout(scores)
+    def pi(self, s):
+        z = self.fc(s)
+        z = self.get_action(z)
+        prob = F.softmax(z, dim=-1)
+        return prob
 
-    output = torch.matmul(scores, v)
-    return output
+    def v(self, s):
+        #todo
+        s= torch.cat([s[:, :128 * 2], s[:, 128 * 2:]*0], dim=-1)
+        z = self.fc(s)
+        v = self.get_lk(z)
+        return v
 
-class MultiHeadAttention_new(nn.Module):
-    def __init__(self, heads, d_model_in, d_model_out, dropout=0.1):
-        super().__init__()
+    def get_reward_1(self, env_embedding_dis, consider_idx, at, adj_label):
+        reward = (env_embedding_dis[[*range(0, len(consider_idx))], consider_idx] - env_embedding_dis.mean(dim = 1)*1.5) \
+                 * (at*2-1)
+        return reward
 
-        self.d_model = d_model_out
-        self.d_k = d_model_out // heads
-        self.h = heads
+    def get_reward_2(self, env_embedding_dis, consider_idx, at, adj_label):
+        reward = (adj_label[[*range(0, len(consider_idx))], consider_idx]  - adj_label.mean(dim = 1))* (at*2-1)
+        # reward +=
+        return reward*100
 
-        self.q_linear = nn.Linear(d_model_in, d_model_out)
-        self.v_linear = nn.Linear(d_model_in, d_model_out)
-        self.k_linear = nn.Linear(d_model_in, d_model_out)
+    def get_reward_3(self, env_embedding_dis, consider_idx, at, adj_label):
+        reward = (adj_label[[*range(0, len(consider_idx))], consider_idx]  - adj_label.mean(dim = 1))* (at*7-1)
+        # reward +=
+        return reward*100
 
-        self.dropout = nn.Dropout(dropout)
-        self.out = nn.Linear(d_model_out, d_model_out)
+    def forward(self, adj, adj_wo_I, adj_wo_N, features, labels, env_embedding, adj_label, epoch):
+        # feature_origin = copy.deepcopy(features)
+        env_embedding = F.softmax(env_embedding)
+        env_embedding_dis = get_feature_dis(env_embedding)
+        adj_env = copy.deepcopy(adj_wo_N)
+        # adj_env = torch.eye(adj_wo_N.size()[0]).to(adj_wo_N.device)
+        embeddings = copy.deepcopy(features)  # change the feature dimension to embedding dimension
 
-    def forward(self, q, k, v, mask=None):
-        bs = q.size(0)
+        adj_env_N = F.normalize(adj_env, p=1)
+        embeddings_neibor = torch.mm(adj_env_N, embeddings)
 
-        # perform linear operation and split into N heads
-        k = self.k_linear(k).view(bs, self.h, self.d_k)
-        q = self.q_linear(q).view(bs, self.h, self.d_k)
-        v = self.v_linear(v).view(bs, self.h, self.d_k)
+        #todo select self or neibor?
+        batch_size = features.size()[0]
+        consider_idx = random.sample(list(range(0, batch_size)), batch_size)
+        embeddings_consider = embeddings[consider_idx]
 
-        # transpose to get dimensions bs * N * sl * d_model
-        k = k.transpose(1, 0)
-        q = q.transpose(1, 0)
-        v = v.transpose(1, 0)
+        s = torch.cat([embeddings, embeddings_neibor, embeddings_consider], dim=-1)
+        T_horizon = 5
+        ac_acc_list = []
+        for t in range(T_horizon):
+            z = self.fc(s)
+            lk = self.get_action(z)
+            at_distribution = F.softmax(lk, dim=-1)
+            at_dist = Categorical(at_distribution)
+            at = at_dist.sample()
 
-        # calculate attention using function we will define next
-        scores = attention(q, k, v, self.d_k, mask, self.dropout)
+            adj_env[[*range(0, batch_size)], consider_idx] = at+0.0
+            adj_env_N = F.normalize(adj_env, p=1)
+            rt = self.get_reward_1(env_embedding_dis, consider_idx, at, adj_label)
 
-        # concatenate heads and put through final linear layer
-        concat = scores.transpose(0, 1).contiguous().view(bs, self.d_model)
-        output = self.out(concat)
+            at_acc = ((labels == labels[consider_idx]) * at).sum() / at.sum()
+            ac_acc_list.append(at_acc)
+            print(f"A-{t}: {at_acc}/{at.sum()}|", end="")
+            self.writer_tb.add_scalar('global_acc_'+str(t), at_acc, epoch)
+            self.writer_tb.add_scalar('global_num_' + str(t), at.sum(), epoch)
 
-        return output
+            embeddings_neibor_next = torch.mm(adj_env_N, embeddings)
+            #todo select self or neibor?
+            consider_idx_next = random.sample(list(range(0, batch_size)), batch_size)
+            embeddings_consider_next = embeddings[consider_idx_next]
+            s_next = torch.cat([embeddings, embeddings_neibor_next, embeddings_consider_next], dim=1)
 
-class Act_Model(nn.Module):
-    def __init__(self, n_in ,cfg = None, batch_norm=True, act='elu', dropout = 0.1, final_mlp = 0, heads = 4):
-        super(Act_Model, self).__init__()
+            self.buffer.actions.append(at.detach())
+            self.buffer.states.append(s.detach())
+            self.buffer.states_next.append(s_next.detach())
+            self.buffer.logprobs.append(at_dist.log_prob(at).detach())
+            self.buffer.rewards.append(rt.detach())
+            self.writer_tb.add_scalar('reward_' + str(t), rt.detach().mean().item(), epoch)
+            self.buffer.is_end.append(False)
 
-        self.dropout = dropout
-        self.bat = batch_norm
-        self.act = act
-        self.final_mlp = final_mlp > 0
-        self.cfg = cfg
-        self.layer_num = len(cfg)
-        in_channels = n_in
-        self.norm_0 = Norm(in_channels)
-        self.mlp_1 = nn.Linear(in_channels, cfg[0])
-        self.norm_1 = Norm(cfg[0])
-        self.norm_2 = Norm(cfg[0])
-        self.trans_1 = MultiHeadAttention_new(heads, cfg[0],cfg[0], dropout=dropout)
-        self.ff_1 = FeedForward(cfg[0], dropout=dropout)
-        self.dropout_1 = nn.Dropout(dropout)
-        self.dropout_2 = nn.Dropout(dropout)
-        self.selecter = Categorical()
+            consider_idx = consider_idx_next
+            embeddings_consider = embeddings_consider_next
+            s = s_next
 
-        # for m in self.modules():
-        #     self.weights_init(m)
-    # def weights_init(self, m):
-    #     if isinstance(m, nn.Linear):
-    #         torch.nn.init.xavier_uniform_(m.weight.data)
-    #         if m.bias is not None:
-    #             m.bias.data.fill_(0.0)
-    #     if isinstance(m, nn.Sequential):
-    #         for mm in m:
-    #             try:
-    #                 torch.nn.init.xavier_uniform_(mm.weight.data)
-    #             except:
-    #                 pass
+        print("")
+        return
+
+    def evlue(self, adj, adj_wo_I, adj_wo_N, features, labels, env_embedding, adj_label):
+        # feature_origin = copy.deepcopy(features)
+
+        # env_embedding_dis = get_feature_dis(env_embedding)
+        adj_env = copy.deepcopy(adj_wo_N)
+
+        embeddings = copy.deepcopy(features)  # change the feature dimension to embedding dimension
+
+        adj_env_N = F.normalize(adj_env, p=1)
+        embeddings_neibor = torch.mm(adj_env_N, embeddings)
+
+        # todo select self or neibor?
+        batch_size = features.size()[0]
+        for consider_idx in range(batch_size):
+            num_idx = adj_env.sum(-1)[consider_idx]
+            end_neibor = 5
+            if num_idx > end_neibor:
+                pass
+            else:
+                embeddings_i = embeddings[consider_idx].repeat(batch_size, 1)
+                embeddings_neibor_i = embeddings_neibor[consider_idx].repeat(batch_size, 1)
+                embeddings_consider_i = embeddings
+                s = torch.cat([embeddings_i, embeddings_neibor_i, embeddings_consider_i], dim=-1)
+                s_v = torch.cat([embeddings_i, (adj_env.sum(-1)[consider_idx] * embeddings_neibor_i + embeddings_consider_i) / (1 +adj_env.sum(-1)[consider_idx]), embeddings_consider_i], dim=-1)
+                v = self.v(s_v)
+                z = self.fc(s)
+                lk = self.get_action(z)
+                at_distribution = F.softmax(lk, dim=-1)
+
+                at = at_distribution[:, 1].topk(k=int(5 - num_idx.item() + 1), dim=0, largest=True, sorted=True)[1]
+                adj_env[consider_idx, at] = 1.0
+
+                # max_idx = at_distribution[:, 1].topk(k=20, dim=0, largest=True, sorted=True)[1]
+                # at = max_idx[v[max_idx].topk(k=int(5 - num_idx.item() + 1), dim=0, largest=True, sorted=True)[1]].squeeze()
+                # adj_env[consider_idx, at] = 1.0
+                # adj_env[at, consider_idx] = 1.0
+
+        # adj_env_N = F.normalize(adj_env, p=1)
+
+        print("")
+        return adj_env
 
 
-    def forward(self, x_input, mask, q_idx, k_idx):
-        pi_list= []
-        log_ps = []
+class GDP_Module(nn.Module):
+    def __init__(self, input_features, layers, embedding_features, n_classes=7, lr=0.0005, gamma=0.99, gae_lambda=0.95,
+                 K_epoch=40, eps_clip=0.2, act='relu', device='cpu'):
+        super(GDP_Module, self).__init__()
+        self.gamma = gamma
+        self.eps_clip = eps_clip
+        self.K_epoch = K_epoch
+        self.gae_lambda = gae_lambda
+        self.device = device
 
-        x_input = self.norm_0(x_input)
-        x_1 = self.dropout_1(self.norm_1(F.elu(self.mlp_1(x_input))))
+        self.policy = Policy(input_features, layers, embedding_features, n_classes=n_classes, bias=False, act=act,
+                             device=device)
+        self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=lr)
+        self.mse_loss = nn.MSELoss()
+        self.ce_loss = nn.CrossEntropyLoss()
 
-        x_2 = self.trans_1(x_1, x_1, x_1, mask) + x_1
-        x_2 = self.norm_2(F.elu(x_2))
+    def make_batch(self):
+        a = torch.stack(self.policy.buffer.actions)
+        s = torch.stack(self.policy.buffer.states)
+        s_prime = torch.stack(self.policy.buffer.states_next)
+        prob_a = torch.stack(self.policy.buffer.logprobs)
+        r = torch.stack(self.policy.buffer.rewards)
+        # done_mask = torch.cat(self.policy.buffer.is_end)
+        self.policy.buffer.clear()
 
-        x_3 = x_2# self.dropout_2(self.ff_1(x_2)) + x_1
+        return a, s, s_prime, r, prob_a
 
-        q_embedding = x_3[q_idx].unsqueeze(1) #[Batch, 1, dim]
-        k_embedding = x_3[k_idx].unsqueeze(0).repeat(q_embedding.size(0), 1, 1).transpose(-2, -1) #[Batch, dim, train_num]
-        logits = torch.bmm(q_embedding,k_embedding).squeeze()
-        logits = logits * (torch.sum(logits, 1)**(-1)).unsqueeze(-1)
-        log_p = torch.softmax(logits, dim=-1)
-        neibor_select = self.selecter(log_p)  # 通过学习得到的动作概率抽样选择最终动作
-        pi_list.append(neibor_select)
-        log_ps.append(log_p)
+    def update(self, adj, adj_wo_I, adj_wo_N, x, labels, env_embedding, adj_label, epoch, pretrain=False, train_index=None):
+        self.policy(adj, adj_wo_I, adj_wo_N, x, labels, env_embedding, adj_label, epoch)  # get reward state and caction (in polic.buffer)
+        a, s, s_prime, r, prob_a = self.make_batch()
+        learning_rate = 0.0005
+        gamma = 0.98
+        lmbda = 0.95
+        eps_clip = 0.1
+        K_epoch = 3
+        T_horizon = s.size()[0]
+        batch_size = s.size()[1]
 
-        ll = torch.gather(input= log_ps[0], dim = 1, index=pi_list[0][:,None]).squeeze()   #一系列动作的的概率和用于反向传播
-        return pi_list[0], ll #因为第一个为stop，所有所有位置需要-1
+        for i in range(K_epoch):
+            td_target = r.view(T_horizon*batch_size, -1) + gamma * self.policy.v(s_prime.view(T_horizon*batch_size, -1))
+            delta = td_target - self.policy.v(s.view(T_horizon*batch_size, -1))
+            delta = delta.detach().view(T_horizon, batch_size, -1)
+
+            advantage_lst = []
+            advantage = 0.0
+            for delta_t in torch.flip(delta, dims=[0]):
+                advantage = gamma * lmbda * advantage + delta_t
+                advantage_lst.append(advantage)
+            advantage_lst.reverse()
+            advantage = torch.stack(advantage_lst).view(T_horizon*batch_size, -1)
+            # advantage = torch.tensor(advantage_lst, dtype=torch.float)
+
+            pi = self.policy.pi(s.view(T_horizon*batch_size, -1))
+            pi_a = pi.view(T_horizon,batch_size, -1).gather(-1,a.unsqueeze(dim = -1)).squeeze().view(T_horizon*batch_size, -1)
+            ratio = torch.exp(torch.log(pi_a) - prob_a.view(T_horizon*batch_size, -1))  # a/b == exp(log(a)-log(b))
+
+            surr1 = ratio * advantage
+            surr2 = torch.clamp(ratio, 1-eps_clip, 1+eps_clip) * advantage
+            loss = -torch.min(surr1, surr2) + F.smooth_l1_loss(self.policy.v(s.view(T_horizon*batch_size, -1)), td_target.detach())
+
+            # print(f"RL Epoch: {i} PPO Loss: {loss.mean()} ")
+            self.optimizer.zero_grad()
+            loss.mean().backward()
+            self.optimizer.step()
+
+        return
+
+    def forward(self, adj, adj_wo_I, adj_wo_N, x, labels, env_embedding, adj_label, pretrain=False, train_index=None):
+        adj_new = self.policy.evlue(adj, adj_wo_I, adj_wo_N, x, labels, env_embedding, adj_label)
+        return adj_new
+
 
 class RLGDQN(embedder_single):
     def __init__(self, args):
-        embedder_single.__init__(self, args)
+
+        # args.device = 'cuda:3'
+        super(RLGDQN, self).__init__(args)
         self.args = args
-        self.cfg = args.cfg
-        nb_classes = (self.labels.max() - self.labels.min() + 1).item()
-        self.cfg.append(nb_classes)
-        self.graph_org_torch = self.adj_list[0]
+        self.fake_labels = None
+        self.nb_classes = (self.labels.max() - self.labels.min() + 1).item()
+        self.model = GDP_Module(128, self.args.cfg, self.args.feature_dimension, act='gelu',
+                                n_classes=self.nb_classes, device=self.args.device).to(self.args.device)
 
-        self.action_num = 5
-        self.max_episodes = 325
-        self.max_timesteps = 10
+        self.env_model = GNN_pre_Model(self.args.ft_size, cfg=[128, 16, self.nb_classes], final_mlp = 0, gnn = self.args.gnn, dropout=self.args.random_aug_feature).to(self.args.device)
 
-        self.data_split = zip(self.idx_train.cpu(), self.idx_val.cpu(), self.idx_test.cpu())
-        self.env_model = GNN_Model(self.args.ft_size, cfg=self.cfg[1:], final_mlp = 0, gnn = self.args.gnn, dropout=self.args.random_aug_feature).to(self.args.device)
-        self.act_model = Act_Model(self.args.ft_size, cfg=self.cfg, final_mlp = 0, dropout=self.args.random_aug_feature).to(self.args.device)
-        self.act_optimizer = torch.optim.Adam(self.act_model.parameters(), lr=0.001)
+    def training(self):
+        features = self.features.to(self.args.device)
+        graph_org = self.adj_list[-1].to(self.args.device)
+        graph_org_N = self.adj_list[1].to(self.args.device)
+        graph_org_NI = self.adj_list[0].to(self.args.device)
+        self.labels = self.labels.to(self.args.device)
+        print("Started training...")
+        train_lbls = self.labels[self.idx_train]
+        val_lbls = self.labels[self.idx_val]
+        test_lbls = self.labels[self.idx_test]
 
+        cnt_wait = 0
+        best = 1e-9
+        output_acc = 1e-9
+        stop_epoch = 0
+
+        start = time.time()
+        rewards = []
+        acces = []
+
+        # pre_model = GAT_selfCon_Trans(features.shape[-1], cfg=[256, 7], final_mlp=0, dropout=0.2, nheads=8,
+        #                               Trans_layer_num=2).to(self.args.device)
+        # pre_optimizer = torch.optim.Adam(pre_model.parameters(), lr=0.0005, weight_decay=0.0005)
+
+        env_embedding, env_embedding_first = self.pre_training()
+
+        adj_label = get_A_r(graph_org_NI, 4)
+
+        for epoch in range(self.args.nb_epochs):
+            self.model.train()
+            print("*" * 15 + f"  Epoch {epoch}  " + "*" * 15)
+            reward = self.model.update(graph_org_NI, graph_org_N, graph_org, env_embedding_first, self.labels, env_embedding, adj_label, epoch, train_index=self.idx_train)
+            rewards.append(reward)
+
+            if epoch % 20 == 0 and epoch != 0:
+                self.model.eval()
+                adj_new = self.model(graph_org_NI, graph_org_N, graph_org, env_embedding_first, self.labels, env_embedding, adj_label, train_index=self.idx_train)
+                # graph_org_torch = F.normalize(adj_new + torch.eye(adj_new.size()[0]).to(adj_new.device), p= 1)
+                graph_org_torch = F.normalize(adj_new, p=1) + torch.eye(adj_new.size()[0]).to(adj_new.device)
+                env_model = GNN_Model(self.args.ft_size, cfg=[16, self.nb_classes], final_mlp = 0, gnn = self.args.gnn, dropout=self.args.random_aug_feature).to(self.args.device)
+                features = self.features.to(self.args.device)
+                optimiser = torch.optim.Adam(env_model.parameters(), lr=0.01, weight_decay=5e-4)
+                xent = nn.CrossEntropyLoss()
+                train_lbls = self.labels[self.idx_train]
+                val_lbls = self.labels[self.idx_val]
+                test_lbls = self.labels[self.idx_test]
+                cnt_wait = 0
+                best = 1e-9
+                output_acc = 1e-9
+                totalL = []
+                for epoch_i in range(self.args.nb_epochs):
+                    env_model.train()
+                    optimiser.zero_grad()
+                    embeds = env_model(graph_org_torch, features)
+                    embeds_preds = torch.argmax(embeds, dim=1)
+                    train_embs = embeds[self.idx_train]
+                    val_embs = embeds[self.idx_val]
+                    test_embs = embeds[self.idx_test]
+                    loss = F.cross_entropy(train_embs, train_lbls)
+                    loss.backward()
+                    totalL.append(loss.item())
+                    optimiser.step()
+                    ################STA|Eval|###############
+                    if epoch_i % 5 == 0 and epoch_i != 0:
+                        env_model.eval()
+                        embeds = env_model(graph_org_torch, features)
+                        val_acc = accuracy(embeds[self.idx_val], val_lbls)
+                        test_acc = accuracy(embeds[self.idx_test], test_lbls)
+                        stop_epoch = epoch
+                        if val_acc > best:
+                            best = val_acc
+                            output_acc = test_acc.item()
+                            cnt_wait = 0
+                        else:
+                            cnt_wait += 1
+                        if cnt_wait == self.args.patience:
+                            break
+                print("\t[Classification] ACC: {:.4f}".format(output_acc))
+
+    def evalue_graph(self):
+        pass
     def pre_training(self):
 
         features = self.features.to(self.args.device)
@@ -285,6 +459,7 @@ class RLGDQN(embedder_single):
                 # A_a, X_a = process.RA(graph_org.cpu(), features, 0, 0)
                 # A_a = A_a.add_self_loop().to(self.args.device)
                 embeds = self.env_model(graph_org_torch, features)
+                embedding_first = self.env_model.get_first_embedding(features).detach()
                 Last_embedding = embeds.detach()
                 val_acc = accuracy(embeds[self.idx_val], val_lbls)
                 test_acc = accuracy(embeds[self.idx_test], test_lbls)
@@ -303,49 +478,5 @@ class RLGDQN(embedder_single):
         training_time = time.time() - start
         print("\t[Classification] ACC: {:.4f} | stop_epoch: {:}| training_time: {:.4f} ".format(
             output_acc, stop_epoch, training_time))
-        return Last_embedding
-
-    def act_training(self, env_embedding):
-        self.act_model.train()
-        dis_embedding = get_feature_dis(env_embedding)
-        features = self.features.to(self.args.device)
-        graph_org = self.dgl_graph.to(self.args.device)
-        graph_org_torch = self.adj_list[0].to(self.args.device)
-        print("Started training...")
-        idx_test_val = list(self.idx_test.cpu().numpy()) + list(self.idx_val.cpu().numpy())
-        idx_train = list(self.idx_train.cpu().numpy())
-        batch_size = self.args.batch
-        labeled_size = self.idx_train.size(0)
-        q_idx = range(batch_size)
-        k_idx = range(batch_size, batch_size + labeled_size)
-        mask = torch.zeros([batch_size + labeled_size, batch_size + labeled_size])
-        mask[:, : batch_size] = 1.0
-        mask = mask.bool().to(self.args.device)
-        for epoch in range(self.args.nb_epochs):
-            batch_idx = random.sample(idx_test_val, batch_size)
-            batch_input = features[batch_idx+idx_train]
-
-            pi_list, ll = self.act_model(batch_input, mask, q_idx, k_idx)
-            real_reward = torch.diag(dis_embedding[batch_idx][:,pi_list]).detach()
-
-
-
-            act_loss = -(100*torch.exp(real_reward) * ll).mean()        #*10是因为loss太小   #常规的AC网络， 这里应该是max_pi sum_i{Q*p_i} 这里的Q从reward的期望换成了loss
-            self.act_optimizer.zero_grad()
-            act_loss.backward()
-            # nn.utils.clip_grad_norm_(self.act_model.parameters(), max_norm=1., norm_type=2)
-            self.act_optimizer.step()
-            neibor_acc = self.labels[batch_idx].eq(self.labels[pi_list]).double().sum()/  len(self.labels[pi_list])
-            print("Loss: {:.4f}, ACC: {:.1f}".format(act_loss.item(),neibor_acc))
-
-
-
-
-
-        return None
-
-    def training(self):
-        env_embedding = self.pre_training()
-        self.act_training(env_embedding)
-        return None
+        return Last_embedding, embedding_first
 
