@@ -7,13 +7,15 @@ from torch import nn
 from torch.nn import functional as F
 from torch.distributions import Categorical
 from models.Layers import act_layer, GNN_Model, GNN_pre_Model
-# from models.NodeClas.Semi_SELFCONS import GAT_selfCon_Trans
+from models.NodeClas.Semi_SELFCONS import SELFCONS
 from models.Rein.RLG import KDloss_0
 from evaluate import accuracy
 import setproctitle
 import random
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+import os
+from datetime import datetime
 from tensorboardX import SummaryWriter
 
 setproctitle.setproctitle('PLLL')
@@ -46,6 +48,22 @@ def fc(x, lb):
     # TODO: the fc function in Eq.5
     return x.argmax(dim=-1).eq(lb).sum()
 
+class Norm(nn.Module):
+    def __init__(self, d_model, eps=1e-6):
+        super().__init__()
+
+        self.size = d_model
+
+        # create two learnable parameters to calibrate normalisation
+        self.alpha = nn.Parameter(torch.ones(self.size))
+        self.bias = nn.Parameter(torch.zeros(self.size))
+
+        self.eps = eps
+
+    def forward(self, x):
+        norm = self.alpha * (x - x.mean(dim=-1, keepdim=True)) \
+               / (x.std(dim=-1, keepdim=True) + self.eps) + self.bias
+        return norm
 
 def get_A_r(adj, r):
     adj_label = adj
@@ -91,19 +109,18 @@ class Policy(nn.Module):
         self.input_features = input_features
         self.embedding_features = embedding_features
         self.ending_idx = -233
-        self.writer_tb = SummaryWriter()
         self.fc = nn.ModuleList([])
         self.fc += nn.Sequential(
             nn.Linear(input_features * 3, layers[0], bias=bias),
             act_layer(act),
-            nn.BatchNorm1d(layers[0])
+            Norm(layers[0])
         )
         for i in range(len(layers) - 1):
             self.fc += [
                 nn.Sequential(
                     nn.Linear(layers[i], layers[i + 1], bias=bias),
                     act_layer(act),
-                    nn.BatchNorm1d(layers[i + 1])
+                    Norm(layers[i + 1])
                 )
             ]
         self.fc = nn.Sequential(*self.fc)
@@ -112,14 +129,14 @@ class Policy(nn.Module):
         self.get_lk = nn.Sequential(
             nn.Linear(layers[-1], layers[-1], bias=bias),
             act_layer(act),
-            nn.BatchNorm1d(layers[-1]),
+            Norm(layers[-1]),
             nn.Linear(layers[-1], 1, bias=bias)
         )
         # get the action value. action ={0,1}, so the output is 2
         self.get_action = nn.Sequential(
             nn.Linear(layers[-1], layers[-1], bias=bias),
             act_layer(act),
-            nn.BatchNorm1d(layers[-1]),
+            Norm(layers[-1]),
             nn.Linear(layers[-1], 2, bias=bias)
         )
         # use to calculate the embedding of node v
@@ -138,6 +155,7 @@ class Policy(nn.Module):
         self.A_N  = None
         self.A = None
         self.I = None
+        self.reward_matrix = None
 
     def pi(self, s):
         z = self.fc(s)
@@ -175,10 +193,9 @@ class Policy(nn.Module):
         # reward +=
         return reward*100
 
-    def get_reward_3(self,  consider_idx, at, adj_label):
-        reward = (adj_label[[*range(0, len(consider_idx))], consider_idx]  - adj_label.mean(dim = 1))* (at*7-1)
-        # reward +=
-        return reward*100
+    def get_reward_3(self,  consider_idx, at):
+        reward = self.reward_matrix[[*range(0, len(consider_idx))], consider_idx,at]
+        return reward
 
     def _init(self, node_num, pre_embedding, input_embedding, adj_label_list, env, graph_org_NI, graph_org_N, graph_org):
         self.node_num = node_num
@@ -192,13 +209,15 @@ class Policy(nn.Module):
         self.I = torch.eye(self.node_num).to(self.env.args.device)
         self._init_nei_group()
         self._reset()
-
+        current_time = datetime.now().strftime('%b%d_%H-%M:%S')
+        logdir = os.path.join('runs4', current_time + '_offlineRLG_'+ str(self.env.args.seed))
+        self.writer_tb = SummaryWriter(log_dir = logdir)
     def _init_nei_group(self):
         # pre_embedding = F.softmax(self.pre_embedding)
         pre_embedding = self.pre_embedding
         pre_embedding_dis = get_feature_dis(pre_embedding)
         self.pre_embedding_dis = pre_embedding_dis
-        topk = 100
+        topk = 500
 
         value, candidate_index = torch.topk(pre_embedding_dis, k=topk, dim=-1, largest=True)
         self.candidate_index = candidate_index.tolist()
@@ -209,12 +228,13 @@ class Policy(nn.Module):
     def _sampleNeigh(self):
         sample_list = []
         for i in range(self.node_num):
-            index_TABLE = self.candidate_index[i] + self.candidate_index_reverse[i]
+            index_TABLE = self.candidate_index[i] #+ self.candidate_index_reverse[i]
             sample_index = i
             while sample_index == i:  # 不让它取自己
                 sample_index = random.choice(index_TABLE)
             sample_list.append(sample_index)
-        # self.sample_list = sample_list  # 记录下来 因为后续在改变邻居是要用到
+        self.sample_list = sample_list  # 记录下来 因为后续在改变邻居是要用到
+        # sample_list = random.sample(list(range(0, self.node_num)), self.node_num)
         return sample_list
 
     def _reset(self):
@@ -230,7 +250,7 @@ class Policy(nn.Module):
         embeddings_neibor = torch.mm(A_G_N, embeddings)
         #todo select self or neibor?
         # batch_size = features.size()[0]
-        # consider_idx = random.sample(list(range(0, batch_size)), batch_size)
+        # self.consider_idx = random.sample(list(range(0, self.node_num)), self.node_num)
         self.consider_idx = self._sampleNeigh()
 
         # train_index = torch.from_numpy(np.array(range(0, batch_size)))[train_index.tolist()]2
@@ -239,7 +259,7 @@ class Policy(nn.Module):
 
         s = torch.cat([embeddings, embeddings_neibor, embeddings_consider], dim=-1)
 
-        T_horizon = 100
+        T_horizon = 50
         ac_acc_list = []
         if epoch % 5 == 0:
             print(f"\n Epoch {epoch}", end="")
@@ -252,13 +272,16 @@ class Policy(nn.Module):
 
             self.A_G[[*range(0, self.node_num)], self.consider_idx] = at+0.0
             A_G_N = F.normalize(self.A_G, p=1)
-            rt = self.get_reward_0(self.consider_idx, at, adj_id= 2)
+            # rt = self.get_reward_0(self.consider_idx, at, adj_id= 2)\
+            rt = self.get_reward_3(self.consider_idx, at)
             at_acc = 100 *  ((self.env.labels == self.env.labels[self.consider_idx]) * at).sum() / at.sum()
             ac_acc_list.append(at_acc)
             if epoch%5==0:
                 print("A-{}: {:.2f}/{}|".format(t, at_acc, at.sum()), end="")
-            self.writer_tb.add_scalar('global_acc_'+str(t), at_acc, epoch)
-            self.writer_tb.add_scalar('global_num_' + str(t), at.sum(), epoch)
+            if t <5:
+                self.writer_tb.add_scalar('global_acc_'+str(t), at_acc, epoch)
+                self.writer_tb.add_scalar('global_num_' + str(t), at.sum(), epoch)
+                self.writer_tb.add_scalar('reward_' + str(t), rt.detach().mean().item(), epoch)
 
             embeddings_neibor_next = torch.mm(A_G_N, embeddings)
             # todo select self or neibor?
@@ -273,7 +296,6 @@ class Policy(nn.Module):
             self.buffer.states_next.append(s_next.detach())
             self.buffer.logprobs.append(at_dist.log_prob(at).detach())
             self.buffer.rewards.append(rt.detach())
-            self.writer_tb.add_scalar('reward_' + str(t), rt.detach().mean().item(), epoch)
             self.buffer.is_end.append(False)
 
             self.consider_idx = self.consider_idx_next
@@ -317,7 +339,7 @@ class Policy(nn.Module):
 
 
 class PPO_Module(nn.Module):
-    def __init__(self, input_features, layers, embedding_features, n_classes=7, lr=0.0005, gamma=0.99, gae_lambda=0.95,
+    def __init__(self, input_features, layers, embedding_features, env, n_classes=7, lr=0.0005, gamma=0.99, gae_lambda=0.95,
                  K_epoch=40, eps_clip=0.2, act='relu', device='cpu'):
         super(PPO_Module, self).__init__()
 
@@ -330,11 +352,14 @@ class PPO_Module(nn.Module):
         )
         self.Reward = nn.Sequential(
             nn.Linear(layers_sa[0] + layers_sa[0]//4, layers_sa[1]),
-            act_layer(act),
-            nn.BatchNorm1d(layers_sa[1]),
+            act_layer('relu'),
+            Norm(layers_sa[1]),
             nn.Linear(layers_sa[1], layers_sa[2]),
-            act_layer(act),
-            nn.BatchNorm1d(layers_sa[2]),
+            act_layer('relu'),
+            Norm(layers_sa[2]),
+            # nn.Linear(layers_sa[2], layers_sa[2]),
+            # act_layer('relu'),
+            # Norm(layers_sa[2]),
             nn.Linear(layers_sa[2], 1),
         )
 
@@ -349,6 +374,14 @@ class PPO_Module(nn.Module):
         self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=lr)
         self.mse_loss = nn.MSELoss()
         self.ce_loss = nn.CrossEntropyLoss()
+        self.env = env
+        self.psudo_labels = None
+        self.top_entropy_idx = None
+        self.entropy = None
+        self.input_embedding = None
+        self.A = None
+        self.N = None
+
 
     def make_batch(self):
         a = torch.stack(self.policy.buffer.actions)
@@ -373,7 +406,8 @@ class PPO_Module(nn.Module):
         K_epoch = 5
         T_horizon = s.size()[0]
         batch_size = s.size()[1]
-
+        self.train()
+        self.policy.train()
         for i in range(K_epoch):
             td_target = r.view(T_horizon*batch_size, -1) + gamma * self.policy.v(s_prime.view(T_horizon*batch_size, -1))
             delta = td_target - self.policy.v(s.view(T_horizon*batch_size, -1))
@@ -408,35 +442,116 @@ class PPO_Module(nn.Module):
         adj_new = self.policy.A_G_last
         return adj_new
 
-    # def make_sa_batch(self, batch_size = 512):
-    #     self.policy.A
-    #     self.entropy =
-    #     self.psudo_lable =
-    #     self.degree =
-    #     self.top_degree_idx =
-    #     self.
-    #     x =
-    #     x = []
-    #     a = []
-    #     y = []
-    #     for i in range(batch_size):
-    #         anchor =
-    #         neibor =
-    #         action =
-    #         reward =
-    #         x.append()
-    #     return x, a, y
-    # def train_SA(self):
-    #     for epoch_j in range(1000):
-    #         x, a, y = self.make_sa_batch()
-    #         z_0 = self.State(x)
-    #         z_1 = self.Action(a)
-    #         r = self.Reward(torch.cat(z_0, z_1))
-    #         loss = nn.MSELoss(r, y)
-    #         self.optimizer.zero_grad()
-    #         loss.backward()
-    #         self.optimizer.step()
+    def init_SA(self, pre_embedding, pre_embedding_entropy, input_embedding, graph_org):
+        entropy_top = 1000
+        self.input_embedding = input_embedding
+        self.A = graph_org
+        self.N = self.A.size()[0]
+        top_entropy_idx = torch.topk(pre_embedding_entropy, k=entropy_top, dim=-1, largest=False)[1]
+        print(accuracy(pre_embedding[top_entropy_idx], self.env.labels[top_entropy_idx]))
+        self.idx_train = self.env.idx_train.cpu().numpy().tolist()
+        self.top_entropy_idx = []
+        for i in top_entropy_idx:
+            if i not in self.env.idx_train:
+                self.top_entropy_idx.append(i.item())
 
+        self.entropy = pre_embedding_entropy
+        self.psudo_labels = pre_embedding.max(1)[1].type_as(self.env.labels)
+        self.degree = graph_org.sum(dim = -1)
+        self.top_degree_idx = torch.topk(self.degree, k=100, dim=-1, largest=True)[1].cpu().numpy().tolist()
+
+    def make_sa_batch(self, batch_size = 512):
+        x = []
+        a = []
+        y = []
+        anchor_list = []
+        neibor_list = []
+        action_list = [-1.0,1.0]
+        consider_list = self.idx_train  + self.top_entropy_idx
+        for i in range(batch_size):
+            sample_index = random.sample(consider_list, 2)
+            anchor = sample_index[0]
+            neibor = sample_index[1]
+            action = random.sample(action_list, 1)[0]
+            reward = 0
+            if anchor in self.idx_train:
+                anchor_label = self.env.labels[anchor]
+                anchor_confidence = 1
+            else:
+                anchor_label = self.psudo_labels[anchor]
+                anchor_confidence = 0.9
+
+            if neibor in self.idx_train:
+                neibor_label = self.env.labels[neibor]
+                neibor_confidence = 1
+            else:
+                neibor_label = self.psudo_labels[neibor]
+                neibor_confidence = 0.9
+
+            if anchor_label.eq(neibor_label):
+                if action == 1.0:
+                    reward += 1 * anchor_confidence * neibor_confidence
+                else:
+                    reward -= 0.25 * anchor_confidence * neibor_confidence
+            else:
+                if action == 1.0:
+                    reward -= 0.5 * anchor_confidence * neibor_confidence
+                else:
+                    reward += 0.125 * anchor_confidence * neibor_confidence
+
+            anchor_list.append(anchor)
+            neibor_list.append(neibor)
+            x.append(torch.cat([self.input_embedding[anchor],self.input_embedding[neibor]], dim=-1))
+            a.append(action)
+            y.append(reward)
+
+        x = torch.stack(x, dim=0)
+        a = torch.tensor(a).to(x.device).unsqueeze(dim = -1)
+        y = torch.tensor(y).to(x.device).unsqueeze(dim = -1)
+        return x, a, y, anchor_list, neibor_list
+
+    def train_SA(self):
+        optimizer_SA = torch.optim.Adam(self.parameters(), lr=0.0001)
+        for epoch_j in range(500):
+            self.train()
+            x, a, y, anchor_list, neibor_list = self.make_sa_batch()
+            # x = F.dropout(x, 0.1, training=self.training)
+            z_0 = self.State(x)
+            z_1 = self.Action(a)
+            r_input = torch.cat([z_0, z_1], dim=1)
+            # r_input = F.dropout(r_input, 0.1, training=self.training)
+            r = self.Reward(r_input)
+            loss = self.mse_loss(r, y)
+            optimizer_SA.zero_grad()
+            loss.backward()
+            print("Epoch{}- loss: {:.2f}".format(epoch_j, loss.item()))
+            optimizer_SA.step()
+        self.evalue_SA()
+
+    def evalue_SA(self):
+        self.eval()
+        reward_matrix = []
+        for i in range(self.N):
+            anchor = self.input_embedding[i].repeat(self.N, 1)
+            neibor = self.input_embedding
+            x = torch.cat([anchor, neibor], dim=-1)
+
+            a = torch.tensor([-1.0]).repeat(self.N, 1).to(x.device)
+            z_0 = self.State(x)
+            z_1 = self.Action(a)
+            r_input = torch.cat([z_0, z_1], dim=1)
+            r_0 = self.Reward(r_input)
+
+            a = torch.tensor([1.0]).repeat(self.N, 1).to(x.device)
+            z_0 = self.State(x)
+            z_1 = self.Action(a)
+            r_input = torch.cat([z_0, z_1], dim=1)
+            r_1 = self.Reward(r_input)
+
+            r_output = torch.cat([r_0, r_1], dim=1)
+            reward_matrix.append(r_output.detach())
+
+        self.policy.reward_matrix = torch.stack(reward_matrix, dim=0)
 
 
 class offlineRLG(embedder_single):
@@ -447,7 +562,7 @@ class offlineRLG(embedder_single):
         self.fake_labels = None
         self.nb_classes = (self.labels.max() - self.labels.min() + 1).item()
         self.input_dim = 128
-        self.model = PPO_Module(self.input_dim, self.args.cfg, self.args.feature_dimension, act='gelu',
+        self.model = PPO_Module(self.input_dim, self.args.cfg, self.args.feature_dimension, self, act='gelu',
                                 n_classes=self.nb_classes, device=self.args.device).to(self.args.device)
 
         self.env_model = GNN_pre_Model(self.args.ft_size, cfg=[self.input_dim, 16, self.nb_classes], final_mlp = 0, gnn = self.args.gnn, dropout=self.args.random_aug_feature).to(self.args.device)
@@ -484,8 +599,11 @@ class offlineRLG(embedder_single):
             adj_label = get_A_r(graph_org_NI, d)
             adj_label_list.append(adj_label)
         node_num = pre_embedding.size()[0]
-        self.model.policy._init(node_num, pre_embedding, input_embedding, adj_label_list, self, graph_org_NI, graph_org_N, graph_org)
 
+        self.model.policy._init(node_num, pre_embedding, input_embedding, adj_label_list, self, graph_org_NI, graph_org_N, graph_org)
+        self.model.init_SA(pre_embedding, pre_embedding_entropy, input_embedding, graph_org)
+
+        self.model.train_SA()
         test_acc_out = 1e-9
         end_epoch = 0
         for epoch in range(self.args.nb_epochs):
@@ -493,12 +611,12 @@ class offlineRLG(embedder_single):
             reward = self.model.update(epoch)
             rewards.append(reward)
 
-            if epoch % 20 == 0 and epoch != 0:
+            if epoch % 50 == 0 and epoch != 0:
                 self.model.eval()
                 adj_new = self.model()
-                graph_org_torch = F.normalize(adj_new , p= 1) + self.adj_list[0].to(self.args.device)
+                graph_org_torch = F.normalize(adj_new +self.adj_list[0].to(self.args.device) , p= 1) #+
                 # graph_org_torch = F.normalize(adj_new, p=1) + torch.eye(adj_new.size()[0]).to(adj_new.device)
-                test_acc = self.evalue_graph(graph_org_torch)
+                test_acc = self.evalue_graph_selfcons(graph_org_torch)
                 self.model.policy.writer_tb.add_scalar('Eva_acc', test_acc, epoch)
                 if test_acc_out < test_acc:
                     test_acc_out = test_acc
@@ -507,6 +625,7 @@ class offlineRLG(embedder_single):
         return test_acc_out, 0, end_epoch
 
     def evalue_graph(self, graph_org_torch):
+
         # from utils import process
         # graph_org_torch = process.torch2dgl(graph_org_torch).to(self.args.device)
         env_model = GNN_Model(self.args.ft_size, cfg=[16,  self.nb_classes], final_mlp=0, gnn='GCN_org',
@@ -535,7 +654,7 @@ class offlineRLG(embedder_single):
             totalL.append(loss.item())
             optimiser.step()
             ################STA|Eval|###############
-            if epoch_i % 5 == 0 and epoch_i != 0:
+            if epoch_i % 25 == 0 and epoch_i != 0:
                 env_model.eval()
                 embeds = env_model(graph_org_torch, features)
                 val_acc = accuracy(embeds[self.idx_val], val_lbls)
@@ -549,8 +668,19 @@ class offlineRLG(embedder_single):
                     cnt_wait += 1
                 if cnt_wait == self.args.patience:
                     break
-        print("\t[Classification] ACC: {:.4f} | stop_epoch: {:} ".format(output_acc, stop_epoch))
+        print("")
+        print("\t \n [Classification] ACC: {:.4f} | stop_epoch: {:} ".format(output_acc, stop_epoch))
         return output_acc
+
+    def evalue_graph_selfcons(self, graph_generate):
+        from params import parse_args
+        args_evalue = parse_args('Semi', 'SelfCons', self.args.dataset)
+        args_evalue.device = torch.device('cuda:5' if torch.cuda.is_available() else 'cpu')
+        embedder = SELFCONS(copy.deepcopy(args_evalue))
+        embedder.adj_list[0] = graph_generate
+        test_acc, training_time, stop_epoch = embedder.training()
+        print("\t \n [Classification] ACC: {:.4f} | stop_epoch: {:} ".format(test_acc, stop_epoch))
+        return test_acc
 
     def pre_training(self):
 
