@@ -17,7 +17,7 @@ from tqdm import tqdm
 import os
 from datetime import datetime
 from tensorboardX import SummaryWriter
-
+from pathlib import Path
 setproctitle.setproctitle('PLLL')
 
 
@@ -160,8 +160,8 @@ class Policy(nn.Module):
     def pi(self, s):
         z = self.fc(s)
         z = self.get_action(z)
-        prob = F.softmax(z, dim=-1)
-        return prob
+        # prob = F.softmax(z, dim=-1)
+        return z
 
     def v(self, s):
         #todo
@@ -212,17 +212,21 @@ class Policy(nn.Module):
         current_time = datetime.now().strftime('%b%d_%H-%M:%S')
         logdir = os.path.join('runs4', current_time + '_offlineRLG_'+ str(self.env.args.seed))
         self.writer_tb = SummaryWriter(log_dir = logdir)
+
+        self.lable_matrix = (self.env.labels.view(self.node_num, 1).repeat(1, self.node_num) \
+                            == self.env.labels.view(1,self.node_num).repeat(self.node_num, 1)) + 0.0
+
     def _init_nei_group(self):
         # pre_embedding = F.softmax(self.pre_embedding)
         pre_embedding = self.pre_embedding
         pre_embedding_dis = get_feature_dis(pre_embedding)
         self.pre_embedding_dis = pre_embedding_dis
-        topk = 500
+        self.topk = 500
 
-        value, candidate_index = torch.topk(pre_embedding_dis, k=topk, dim=-1, largest=True)
+        value, candidate_index = torch.topk(pre_embedding_dis, k=self.topk, dim=-1, largest=True)
         self.candidate_index = candidate_index.tolist()
         self.candidate_baseline = value[:,-1]
-        value, candidate_index = torch.topk(pre_embedding_dis, k=topk, dim=-1, largest=False)
+        value, candidate_index = torch.topk(pre_embedding_dis, k=self.topk, dim=-1, largest=False)
         self.candidate_index_reverse = candidate_index.tolist()
 
     def _sampleNeigh(self):
@@ -240,7 +244,7 @@ class Policy(nn.Module):
     def _reset(self):
         if self.A_G is not None:
             self.A_G_last = copy.deepcopy(self.A_G)
-        self.A_G = torch.eye(self.node_num).to(self.env.args.device)
+        self.A_G = 0*torch.eye(self.node_num).to(self.env.args.device)
 
     def forward(self, epoch):
 
@@ -259,11 +263,11 @@ class Policy(nn.Module):
 
         s = torch.cat([embeddings, embeddings_neibor, embeddings_consider], dim=-1)
 
-        T_horizon = 50
+        self.T_horizon = epoch//1000 + 4
         ac_acc_list = []
         if epoch % 5 == 0:
             print(f"\n Epoch {epoch}", end="")
-        for t in range(T_horizon):
+        for t in range(self.T_horizon):
             z = self.fc(s)
             lk = self.get_action(z)
             at_distribution = F.softmax(lk, dim=-1)
@@ -274,7 +278,7 @@ class Policy(nn.Module):
             A_G_N = F.normalize(self.A_G, p=1)
             # rt = self.get_reward_0(self.consider_idx, at, adj_id= 2)\
             rt = self.get_reward_3(self.consider_idx, at)
-            at_acc = 100 *  ((self.env.labels == self.env.labels[self.consider_idx]) * at).sum() / at.sum()
+            at_acc = 100 *  ((self.env.labels == self.env.labels[self.consider_idx]) * at).sum() / (at.sum() + 1e-7)
             ac_acc_list.append(at_acc)
             if epoch%5==0:
                 print("A-{}: {:.2f}/{}|".format(t, at_acc, at.sum()), end="")
@@ -304,38 +308,41 @@ class Policy(nn.Module):
         return
 
     def evlue(self):
+
         embeddings = copy.deepcopy(self.input_embedding)  # change the feature dimension to embedding dimension
-        A_G_2 = F.normalize(self.A, p=1)
-        A_G_out = copy.deepcopy(self.A)
-        embeddings_neibor = torch.mm(A_G_2, embeddings)
+        A_G = 0 * torch.eye(self.node_num).to(self.env.args.device)
 
+        for t in range(self.T_horizon):
+            A_G_N = F.normalize(A_G, p=1)
+            embeddings_neibor = torch.mm(A_G_N, embeddings)
+            for i in range(self.node_num): #range(batch_size, features.size()[0]):
+                # num_idx = adj_env.sum(-1)[consider_idx]
+                end_neibor = 50
+                embeddings_i = embeddings[i].repeat(self.topk, 1)
+                embeddings_neibor_i = embeddings_neibor[i].repeat(self.topk, 1)
+                embeddings_consider_i = embeddings[self.candidate_index[i]] #[train_index]
+                s = torch.cat([embeddings_i, embeddings_neibor_i, embeddings_consider_i], dim=-1)
+                # s_v = torch.cat([embeddings_i, (adj_env.sum(-1)[consider_idx] * embeddings_neibor_i + embeddings_consider_i) / (1 +adj_env.sum(-1)[consider_idx]), embeddings_consider_i], dim=-1)
+                # v = self.v(s_v)
+                z = self.fc(s)
+                lk = self.get_action(z)
+                at_distribution = F.softmax(lk, dim=-1)
+                at_value = lk[:,-1]
+                at = at_distribution[:,1].topk(k=end_neibor, dim=0, largest=True, sorted=True)[1]
+                for idx in at:
+                    if A_G[i, idx]!= 1.0:
+                        A_G[i, idx] = 1.0
+                        break
+                # adj_env_out[at, consider_idx] = 1.0
 
-        for consider_idx in range(self.node_num): #range(batch_size, features.size()[0]):
-            # num_idx = adj_env.sum(-1)[consider_idx]
-            end_neibor = 10
+                    # max_idx = at_distribution[:, 1].topk(k=20, dim=0, largest=True, sorted=True)[1]
+                    # at = max_idx[v[max_idx].topk(k=int(5 - num_idx.item() + 1), dim=0, largest=True, sorted=True)[1]].squeeze()
+                    # adj_env[consider_idx, at] = 1.0
+                    # adj_env[at, consider_idx] = 1.0
 
-            embeddings_i = embeddings[consider_idx].repeat(self.node_num, 1)
-            embeddings_neibor_i = embeddings_neibor[consider_idx].repeat(self.node_num, 1)
-            embeddings_consider_i = embeddings #[train_index]
-            s = torch.cat([embeddings_i, embeddings_neibor_i, embeddings_consider_i], dim=-1)
-            # s_v = torch.cat([embeddings_i, (adj_env.sum(-1)[consider_idx] * embeddings_neibor_i + embeddings_consider_i) / (1 +adj_env.sum(-1)[consider_idx]), embeddings_consider_i], dim=-1)
-            # v = self.v(s_v)
-            z = self.fc(s)
-            lk = self.get_action(z)
-            at_distribution = F.softmax(lk, dim=-1)
+            # adj_env_N = F.normalize(adj_env, p=1)
 
-            at = at_distribution[:, 1].topk(k=end_neibor, dim=0, largest=True, sorted=True)[1]
-            A_G_out[consider_idx, at] = 1.0
-            # adj_env_out[at, consider_idx] = 1.0
-
-                # max_idx = at_distribution[:, 1].topk(k=20, dim=0, largest=True, sorted=True)[1]
-                # at = max_idx[v[max_idx].topk(k=int(5 - num_idx.item() + 1), dim=0, largest=True, sorted=True)[1]].squeeze()
-                # adj_env[consider_idx, at] = 1.0
-                # adj_env[at, consider_idx] = 1.0
-
-        # adj_env_N = F.normalize(adj_env, p=1)
-
-        return A_G_out
+        return A_G + torch.eye(self.node_num).to(self.env.args.device)
 
 
 class PPO_Module(nn.Module):
@@ -371,7 +378,7 @@ class PPO_Module(nn.Module):
 
         self.policy = Policy(input_features, layers, embedding_features, n_classes=n_classes, bias=False, act=act,
                              device=device)
-        self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=lr)
+        self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=0.001, weight_decay = 5e-5)
         self.mse_loss = nn.MSELoss()
         self.ce_loss = nn.CrossEntropyLoss()
         self.env = env
@@ -402,8 +409,8 @@ class PPO_Module(nn.Module):
         learning_rate = 0.0005
         gamma = 0.98
         lmbda = 0.95
-        eps_clip = 0.1
-        K_epoch = 5
+        eps_clip = 0.2
+        K_epoch = 3
         T_horizon = s.size()[0]
         batch_size = s.size()[1]
         self.train()
@@ -422,7 +429,7 @@ class PPO_Module(nn.Module):
             advantage = torch.stack(advantage_lst).view(T_horizon*batch_size, -1)
             # advantage = torch.tensor(advantage_lst, dtype=torch.float)
 
-            pi = self.policy.pi(s.view(T_horizon*batch_size, -1))
+            pi = F.softmax(self.policy.pi(s.view(T_horizon*batch_size, -1)), dim=-1)
             pi_a = pi.view(T_horizon,batch_size, -1).gather(-1,a.unsqueeze(dim = -1)).squeeze().view(T_horizon*batch_size, -1)
             ratio = torch.exp(torch.log(pi_a) - prob_a.view(T_horizon*batch_size, -1))  # a/b == exp(log(a)-log(b))
 
@@ -438,9 +445,10 @@ class PPO_Module(nn.Module):
         return
 
     def forward(self):
-        # adj_new = self.policy.evlue()
-        adj_new = self.policy.A_G_last
-        return adj_new
+        adj_new = self.policy.evlue()
+        adj_acc = ((adj_new * self.policy.lable_matrix).sum() / adj_new.sum()).item()
+        # adj_new = self.policy.A_G_last
+        return adj_new, adj_acc
 
     def init_SA(self, pre_embedding, pre_embedding_entropy, input_embedding, graph_org):
         entropy_top = 1000
@@ -511,8 +519,14 @@ class PPO_Module(nn.Module):
         return x, a, y, anchor_list, neibor_list
 
     def train_SA(self):
+        os.makedirs('.save/SA/', exist_ok=True)
+        my_file = Path('.save/SA/reward_matrix.npy')
+        if False and my_file.is_file():
+            np_reward_matrix = np.load(my_file)
+            self.policy.reward_matrix = torch.from_numpy(np_reward_matrix).to(self.A.device)
+            return
         optimizer_SA = torch.optim.Adam(self.parameters(), lr=0.0001)
-        for epoch_j in range(500):
+        for epoch_j in range(2000):
             self.train()
             x, a, y, anchor_list, neibor_list = self.make_sa_batch()
             # x = F.dropout(x, 0.1, training=self.training)
@@ -526,7 +540,8 @@ class PPO_Module(nn.Module):
             loss.backward()
             print("Epoch{}- loss: {:.2f}".format(epoch_j, loss.item()))
             optimizer_SA.step()
-        self.evalue_SA()
+        reward_matrix = self.evalue_SA()
+        np.save(my_file, reward_matrix.cpu().numpy())
 
     def evalue_SA(self):
         self.eval()
@@ -551,7 +566,9 @@ class PPO_Module(nn.Module):
             r_output = torch.cat([r_0, r_1], dim=1)
             reward_matrix.append(r_output.detach())
 
-        self.policy.reward_matrix = torch.stack(reward_matrix, dim=0)
+        reward_matrix = torch.stack(reward_matrix, dim=0)
+        self.policy.reward_matrix = reward_matrix
+        return reward_matrix
 
 
 class offlineRLG(embedder_single):
@@ -611,13 +628,14 @@ class offlineRLG(embedder_single):
             reward = self.model.update(epoch)
             rewards.append(reward)
 
-            if epoch % 50 == 0 and epoch != 0:
+            if epoch % 100 == 0 and epoch != 0:
                 self.model.eval()
-                adj_new = self.model()
-                graph_org_torch = F.normalize(adj_new +self.adj_list[0].to(self.args.device) , p= 1) #+
+                adj_new, adj_acc = self.model()
+                graph_org_torch = F.normalize(adj_new, p= 1) +self.adj_list[0].to(self.args.device)
                 # graph_org_torch = F.normalize(adj_new, p=1) + torch.eye(adj_new.size()[0]).to(adj_new.device)
-                test_acc = self.evalue_graph_selfcons(graph_org_torch)
+                test_acc = self.evalue_graph(graph_org_torch)
                 self.model.policy.writer_tb.add_scalar('Eva_acc', test_acc, epoch)
+                self.model.policy.writer_tb.add_scalar('A_acc', adj_acc, epoch)
                 if test_acc_out < test_acc:
                     test_acc_out = test_acc
                     end_epoch = epoch
@@ -628,7 +646,7 @@ class offlineRLG(embedder_single):
 
         # from utils import process
         # graph_org_torch = process.torch2dgl(graph_org_torch).to(self.args.device)
-        env_model = GNN_Model(self.args.ft_size, cfg=[16,  self.nb_classes], final_mlp=0, gnn='GCN_org',
+        env_model = GNN_Model(self.args.ft_size, cfg=[32,  self.nb_classes], final_mlp=0, gnn='GCN_org',
                               dropout=self.args.random_aug_feature).to(self.args.device)
         features = self.features.to(self.args.device)
         optimiser = torch.optim.Adam(env_model.parameters(), lr=0.01, weight_decay=5e-4)
@@ -654,7 +672,7 @@ class offlineRLG(embedder_single):
             totalL.append(loss.item())
             optimiser.step()
             ################STA|Eval|###############
-            if epoch_i % 25 == 0 and epoch_i != 0:
+            if epoch_i % 5 == 0 and epoch_i != 0:
                 env_model.eval()
                 embeds = env_model(graph_org_torch, features)
                 val_acc = accuracy(embeds[self.idx_val], val_lbls)
