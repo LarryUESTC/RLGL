@@ -197,6 +197,19 @@ class Policy(nn.Module):
         reward = self.reward_matrix[[*range(0, len(consider_idx))], consider_idx,at]
         return reward
 
+    def get_reward_4(self,  consider_idx, at):
+        avg = self.candidate_baseline
+        reward = (self.pre_embedding_dis[[*range(0, len(consider_idx))], consider_idx] - avg) * (at*2-1) * \
+                 self.env.model.entropy_graph[[*range(0, len(consider_idx))], consider_idx] / 10
+        return reward
+
+    def get_reward_5(self,  consider_idx, at):
+        avg = self.candidate_baseline
+        this_adj = self.env.model.psudolable_matrix
+        reward = (this_adj[[*range(0, len(consider_idx))], consider_idx]) * (at*2-1) * \
+                 self.env.model.entropy_graph[[*range(0, len(consider_idx))], consider_idx] / 10
+        return reward
+
     def _init(self, node_num, pre_embedding, input_embedding, adj_label_list, env, graph_org_NI, graph_org_N, graph_org):
         self.node_num = node_num
         self.pre_embedding = pre_embedding
@@ -221,10 +234,11 @@ class Policy(nn.Module):
         pre_embedding = self.pre_embedding
         pre_embedding_dis = get_feature_dis(pre_embedding)
         self.pre_embedding_dis = pre_embedding_dis
-        self.topk = 500
+        self.topk = 1000
 
         value, candidate_index = torch.topk(pre_embedding_dis, k=self.topk, dim=-1, largest=True)
         self.candidate_index = candidate_index.tolist()
+        value, candidate_index = torch.topk(pre_embedding_dis, k=self.topk-250, dim=-1, largest=True)
         self.candidate_baseline = value[:,-1]
         value, candidate_index = torch.topk(pre_embedding_dis, k=self.topk, dim=-1, largest=False)
         self.candidate_index_reverse = candidate_index.tolist()
@@ -277,7 +291,7 @@ class Policy(nn.Module):
             self.A_G[[*range(0, self.node_num)], self.consider_idx] = at+0.0
             A_G_N = F.normalize(self.A_G, p=1)
             # rt = self.get_reward_0(self.consider_idx, at, adj_id= 2)\
-            rt = self.get_reward_3(self.consider_idx, at)
+            rt = self.get_reward_5(self.consider_idx, at)
             at_acc = 100 *  ((self.env.labels == self.env.labels[self.consider_idx]) * at).sum() / (at.sum() + 1e-7)
             ac_acc_list.append(at_acc)
             if epoch%5==0:
@@ -378,7 +392,7 @@ class PPO_Module(nn.Module):
 
         self.policy = Policy(input_features, layers, embedding_features, n_classes=n_classes, bias=False, act=act,
                              device=device)
-        self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=0.001, weight_decay = 5e-5)
+        self.optimizer = torch.optim.Adam(self.policy.parameters(), lr=0.002, weight_decay = 5e-5)
         self.mse_loss = nn.MSELoss()
         self.ce_loss = nn.CrossEntropyLoss()
         self.env = env
@@ -409,8 +423,8 @@ class PPO_Module(nn.Module):
         learning_rate = 0.0005
         gamma = 0.98
         lmbda = 0.95
-        eps_clip = 0.2
-        K_epoch = 3
+        eps_clip = 0.1
+        K_epoch = 5
         T_horizon = s.size()[0]
         batch_size = s.size()[1]
         self.train()
@@ -456,6 +470,7 @@ class PPO_Module(nn.Module):
         self.A = graph_org
         self.N = self.A.size()[0]
         top_entropy_idx = torch.topk(pre_embedding_entropy, k=entropy_top, dim=-1, largest=False)[1]
+        self.entropy_graph = -torch.log(pre_embedding_entropy.view(self.N, 1).repeat(1, self.N) * pre_embedding_entropy.view(1,self.N).repeat(self.N, 1))
         print(accuracy(pre_embedding[top_entropy_idx], self.env.labels[top_entropy_idx]))
         self.idx_train = self.env.idx_train.cpu().numpy().tolist()
         self.top_entropy_idx = []
@@ -465,10 +480,12 @@ class PPO_Module(nn.Module):
 
         self.entropy = pre_embedding_entropy
         self.psudo_labels = pre_embedding.max(1)[1].type_as(self.env.labels)
+        self.psudolable_matrix = (self.psudo_labels.view(self.N, 1).repeat(1, self.N) == self.psudo_labels.view(1,self.N).repeat(self.N, 1)) + 0.0
+        self.psudolable_matrix -=  ((self.psudo_labels.view(self.N, 1).repeat(1, self.N) != self.psudo_labels.view(1,self.N).repeat(self.N, 1)) + 0.0)*0.25
         self.degree = graph_org.sum(dim = -1)
         self.top_degree_idx = torch.topk(self.degree, k=100, dim=-1, largest=True)[1].cpu().numpy().tolist()
 
-    def make_sa_batch(self, batch_size = 512):
+    def make_sa_batch(self, batch_size = 1024):
         x = []
         a = []
         y = []
@@ -521,12 +538,12 @@ class PPO_Module(nn.Module):
     def train_SA(self):
         os.makedirs('.save/SA/', exist_ok=True)
         my_file = Path('.save/SA/reward_matrix.npy')
-        if False and my_file.is_file():
+        if True and my_file.is_file():
             np_reward_matrix = np.load(my_file)
             self.policy.reward_matrix = torch.from_numpy(np_reward_matrix).to(self.A.device)
             return
-        optimizer_SA = torch.optim.Adam(self.parameters(), lr=0.0001)
-        for epoch_j in range(2000):
+        optimizer_SA = torch.optim.Adam(self.parameters(), lr=0.001, weight_decay=5e-5)
+        for epoch_j in range(1000):
             self.train()
             x, a, y, anchor_list, neibor_list = self.make_sa_batch()
             # x = F.dropout(x, 0.1, training=self.training)
@@ -535,11 +552,16 @@ class PPO_Module(nn.Module):
             r_input = torch.cat([z_0, z_1], dim=1)
             # r_input = F.dropout(r_input, 0.1, training=self.training)
             r = self.Reward(r_input)
-            loss = self.mse_loss(r, y)
+            loss = F.smooth_l1_loss(r, y)
             optimizer_SA.zero_grad()
             loss.backward()
-            print("Epoch{}- loss: {:.2f}".format(epoch_j, loss.item()))
+
             optimizer_SA.step()
+
+            if epoch_j % 20 == 0 and epoch_j != 0:
+                reward_matrix = self.evalue_SA()
+                matrix_acc = ((reward_matrix[:,:,1] > 0.25) * self.policy.lable_matrix).sum() / (reward_matrix[:,:,1] > 0.25).sum()
+                print("Epoch{}- loss: {:.2f}, Acc: {:.2f}".format(epoch_j, loss.item(), matrix_acc))
         reward_matrix = self.evalue_SA()
         np.save(my_file, reward_matrix.cpu().numpy())
 
