@@ -70,10 +70,10 @@ class RecordeBuffer:
 
 def calc_entropy(input_tensor):
     lsm = nn.LogSoftmax()
-    log_probs = lsm(input_tensor, dim=-1)
+    log_probs = lsm(input_tensor)
     probs = torch.exp(log_probs)
     p_log_p = log_probs * probs
-    entropy = -p_log_p.sum(-1)
+    entropy = -p_log_p.sum(dim=-1)
     return entropy
 
 def get_clones(module, N):
@@ -228,7 +228,27 @@ class GAT_selfCon_Trans(nn.Module):
         self.layers = get_clones(EncoderLayer(self.hid_dim, self.nheads, self.dropout), self.Trans_layer_num)
         self.norm_trans = Norm(int(self.hid_dim / self.nheads))
         # self.cls = nn.Linear(self.hid_dim, self.nclass)
-
+        # cfg_head = [self.hid_dim, 64, 32, self.nclass]
+        # MLP_layers_head = []
+        # act_layers_head = []
+        # bat_layers_head = []
+        # norm_layers_head = []
+        # in_channels_head = n_in
+        # norm_layers_head.append(Norm(in_channels))
+        # for i, v in enumerate(cfg_head):
+        #     out_channels = v
+        #     norm_layers_head.append(Norm(out_channels))
+        #     MLP_layers_head.append(nn.Linear(in_channels, out_channels))
+        #     if act:
+        #         act_layers_head.append(act_layer(act))
+        #     if batch_norm:
+        #         bat_layers_head.append(nn.BatchNorm1d(out_channels, affine=False))
+        #     in_channels = out_channels
+        #
+        # self.MLP_layers_head = nn.Sequential(*MLP_layers_head)
+        # self.act_layers_head = nn.Sequential(*act_layers_head)
+        # self.bat_layers_head = nn.Sequential(*bat_layers_head)
+        # self.norm_layers_head = nn.Sequential(*norm_layers_head)
 
     def forward(self, x_input, adj=None):
 
@@ -241,7 +261,8 @@ class GAT_selfCon_Trans(nn.Module):
 
         x_dis = get_feature_dis(x)
 
-
+        # x = x.detach()
+        x = F.dropout(x, self.dropout, training=self.training)
         # x_dis = get_feature_dis(self.norm_layers[-2](x))
 
         for i in range(self.Trans_layer_num):
@@ -254,12 +275,10 @@ class GAT_selfCon_Trans(nn.Module):
         for Head_i in range(self.nheads):
             feature_cls_sin = x[:, Head_i*D_dim_single:(Head_i+1)*D_dim_single]
             feature_cls_sin = self.norm_trans(feature_cls_sin)
-            Linear_out_one = F.elu(self.Linear_selfC[Head_i](feature_cls_sin))
+            Linear_out_one = self.Linear_selfC[Head_i](feature_cls_sin)
             # CONN_INDEX += F.softmax(Linear_out_one - Linear_out_one.sort(descending= True)[0][:,3].unsqueeze(1), dim=1)
-            CONN_INDEX += F.softmax(Linear_out_one, dim=1)
-
+            CONN_INDEX += Linear_out_one
         # x_dis = get_feature_dis(CONN_INDEX)
-
         return F.log_softmax(CONN_INDEX, dim=1), x_dis
 
 
@@ -276,15 +295,43 @@ class SELFCONS(embedder_single):
                                        Trans_layer_num =self.args.Trans_layer_num).to(self.args.device)
 
         current_time = datetime.now().strftime('%b%d_%H-%M:%S')
-        logdir = os.path.join('runs2', current_time + '_selfcons_'+ str(self.args.seed))
+        logdir = os.path.join('runs5', current_time + '_selfcons_'+ str(self.args.seed))
         self.buffer = RecordeBuffer()
         self.writer_tb = SummaryWriter(log_dir = logdir)
+        self.entropy_top = 500
+        self.entropy = None
+        self.psudo_labels = None
+        self.top_entropy_idx = None
+        self.N = None
+        self.G = None
+
+    def generate_G(self):
+        pre_embedding_entropy = self.buffer.entropy[-1]
+        pre_embedding = self.buffer.psudo_labels[-1]
+        top_entropy_idx = torch.topk(pre_embedding_entropy, k=self.entropy_top, dim=-1, largest=False)[1]
+        print(accuracy(pre_embedding[top_entropy_idx], self.labels[top_entropy_idx]))
+        idx_train = self.idx_train.cpu().numpy().tolist()
+        self.top_entropy_idx = []
+        for i in top_entropy_idx:
+            if i not in idx_train:
+                self.top_entropy_idx.append(i.item())
+        self.entropy = pre_embedding_entropy
+        self.psudo_labels = pre_embedding.max(1)[1].type_as(self.labels)
+        self.entropy_graph = -torch.log(pre_embedding_entropy.view(self.N, 1).repeat(1, self.N) * pre_embedding_entropy.view(1, self.N).repeat(self.N, 1) + 0.0001)
+        self.lable_matrix = (self.psudo_labels.view(self.N, 1).repeat(1, self.N) == self.psudo_labels.view(1,self.N).repeat(self.N, 1)) + 0.0
+        # self.lable_matrix -=  ((self.psudo_labels.view(self.N, 1).repeat(1, self.N) != self.psudo_labels.view(1,self.N).repeat(self.N, 1)) + 0.0)*0.5
+        G = torch.eye(self.N).to(self.args.device)
+        G[self.top_entropy_idx] = self.lable_matrix[self.top_entropy_idx]
+        # G = self.lable_matrix * self.entropy_graph * 0.1
+        self.G = G
+        return G
+
     def training(self):
 
         features = self.features.to(self.args.device)
         graph_org = self.dgl_graph.to(self.args.device)
         graph_org_torch = self.adj_list[0].to(self.args.device)
-
+        self.N = graph_org_torch.size()[0]
         number_neibor_list = splite_nerbor(self.adj_list[-1])
         print("Started training...")
 
@@ -308,17 +355,21 @@ class SELFCONS(embedder_single):
         # features = F.normalize(features)
         targets_u = None
         adj_label_list = []
-        for i in range(2,5):
-            adj_label = get_A_r(graph_org_torch, i)
-            adj_label_list.append(adj_label)
-
-        adj_label = adj_label_list[0]
+        # for i in range(2,3):
+        #     adj_label = get_A_r(graph_org_torch, i)
+        #     adj_label_list.append(adj_label)
+        #
+        # adj_label = adj_label_list[0]
+        adj_label = graph_org_torch @ graph_org_torch
         # adj_label = F.normalize((adj_label_list[-2] > 0) + 0.0, p =1 )
         for epoch in range(self.args.nb_epochs):
             self.model.train()
             optimiser.zero_grad()
-
-
+            if epoch % 1000 == 0 and epoch!=0:
+                self.entropy_top = 1000
+                G = self.generate_G()
+                G_A = F.normalize(G, p=1) + graph_org_torch
+                adj_label = G_A@G_A
             input_feature = features
             embeds, x_dis = self.model(input_feature)
             self.buffer.psudo_labels.append(embeds.detach())
@@ -335,7 +386,11 @@ class SELFCONS(embedder_single):
 
             loss_Ncontrast = self.args.beta * Ncontrast(x_dis, adj_label, tau=self.args.tau)
             loss_ce = F.cross_entropy(train_embs, train_lbls)
-            loss =  loss_ce + loss_Ncontrast
+            if self.top_entropy_idx is not None:
+                loss_psudo = 0.2* F.cross_entropy(embeds[self.top_entropy_idx], self.psudo_labels[self.top_entropy_idx])
+            else:
+                loss_psudo = 0
+            loss =  loss_ce + loss_Ncontrast #+ loss_psudo
             # loss = loss_cls + loss_Ncontrast * self.args.beta
             self.writer_tb.add_scalar('loss_ce', loss_ce.item(), epoch)
             self.writer_tb.add_scalar('loss_Ncontrast', loss_Ncontrast.item(), epoch)

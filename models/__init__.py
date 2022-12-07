@@ -16,6 +16,7 @@ from models.NodeClas.Semi_SELFCONS import SELFCONS
 from models.NodeClas.Sup_GCN import Sup_GCN
 from models.NodeClas.Semi_CR import GCNCR
 from models.VisionGraph.PyramidViG import PyramidViG as IMGCLS_VIG
+from models.Brain.Self_Brain import SELFBRAIN
 
 
 method_dict = {
@@ -37,6 +38,7 @@ method_dict = {
 'IMGCLS_VIG':IMGCLS_VIG,
 'GDP':GDPNet,
 'GDP2':GDPNet2,
+'SELFBRAIN':SELFBRAIN,
 }
 
 

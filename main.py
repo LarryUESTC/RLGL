@@ -39,23 +39,23 @@ def main_one(config, checkpoint_dir=None):
     }
 
     TABLE_NAME = 'main_RLGL_' + current_args.task + '_' + current_args.method + '_0'
-    try:
-        writer = WriteToDatabase({'host': "postgres.kongfei.life", "port": "",
-                                  "database": "pengliang", "user": "pengliang", "password": ""},
-                                 TABLE_NAME,
-                                 PRIMARY_KEY,
-                                 get_columns(train_metrics, val_metrics, test_metrics),
-                                 PRIMARY_VALUE,
-                                 PRIMARY_VALUE,
-                                 REFRESH,
-                                 OVERWRITE)
-        writer.init()
-    except:
-        print("Keys not matched in current table, pls check KEY, or network error")
-        print("Change TABLE_NAME to create a new table")
+    # try:
+    #     writer = WriteToDatabase({'host': "postgres.kongfei.life", "port": "",
+    #                               "database": "pengliang", "user": "pengliang", "password": ""},
+    #                              TABLE_NAME,
+    #                              PRIMARY_KEY,
+    #                              get_columns(train_metrics, val_metrics, test_metrics),
+    #                              PRIMARY_VALUE,
+    #                              PRIMARY_VALUE,
+    #                              REFRESH,
+    #                              OVERWRITE)
+    #     writer.init()
+    # except:
+    #     print("Keys not matched in current table, pls check KEY, or network error")
+    #     print("Change TABLE_NAME to create a new table")
     ################END|SQL|###############
 
-    current_args.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    current_args.device = torch.device('cuda:7' if torch.cuda.is_available() else 'cpu')
     ACC_seed = []
     Time_seed = []
     for seed in range(0, 5):
@@ -67,15 +67,14 @@ def main_one(config, checkpoint_dir=None):
         current_args.seed = seed
         method_fun = models.getmodel(current_args.method)
         embedder = method_fun(copy.deepcopy(current_args))
-
         test_acc, training_time, stop_epoch = embedder.training()
 
         ################STA|write one|###############
-        try:
-            writer_matric_seed = {'epoch': -1, "seed": seed, "test_time": training_time, "stop_epoch": stop_epoch, }
-            writer.write(writer_matric_seed, {"test_acc": test_acc, })
-        except:
-            print("DataBase is not available, it's fine")
+        # try:
+        #     writer_matric_seed = {'epoch': -1, "seed": seed, "test_time": training_time, "stop_epoch": stop_epoch, }
+        #     writer.write(writer_matric_seed, {"test_acc": test_acc, })
+        # except:
+        #     print("DataBase is not available, it's fine")
         ################END|write one|###############
         ACC_seed.append(test_acc)
         # St_seed.append(np.mean(test_st))
@@ -84,11 +83,11 @@ def main_one(config, checkpoint_dir=None):
         gc.collect()
 
     ################STA|write seed|###############
-    try:
-        writer_matric_seed = {'epoch': -2, "seed": -2, "test_time": mean(Time_seed), "stop_epoch": -2}
-        writer.write(writer_matric_seed, {"test_acc": mean(ACC_seed), })
-    except:
-        print("DataBase is not available, it's fine")
+    # try:
+    #     writer_matric_seed = {'epoch': -2, "seed": -2, "test_time": mean(Time_seed), "stop_epoch": -2}
+    #     writer.write(writer_matric_seed, {"test_acc": mean(ACC_seed), })
+    # except:
+    #     print("DataBase is not available, it's fine")
     ################END|write seed|###############
 
 
@@ -110,9 +109,9 @@ def main(args):
 
 
 if __name__ == '__main__':
-    task = 'Rein'  # choice:Semi Unsup Sup Rein Noise ImgCls
-    method = 'GDP2'  # choice: Gcn ViG GDP GcnMixup SelfCons GcnCR
-    dataset = 'Cora'  # choice:Cora CiteSeer PubMed CIFAR10
+    task = 'Brain'  # choice:Semi Unsup Sup Rein Noise ImgCls Brain
+    method = 'SelfBrain'  # choice: Gcn ViG GDP GcnMixup SelfCons GcnCR offlineRLG SelfBrain
+    dataset = 'abide'  # choice:Cora CiteSeer PubMed CIFAR10 abide
     args = parse_args(task, method, dataset)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False

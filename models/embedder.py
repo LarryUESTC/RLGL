@@ -101,3 +101,23 @@ class embedder_image:
         self.val_dl = val_dl
         self.test_dl = test_dl
         self.args = args
+
+class embedder_brain:
+    def __init__(self,args):
+        args.gpu_num_ = args.gpu_num
+        if args.gpu_num_ == -1:
+            args.device = 'cpu'
+        else:
+            args.device = torch.device("cuda:" + str(args.gpu_num_) if torch.cuda.is_available() else "cpu")
+        cprint("## Loading Dataset ##", "yellow")
+
+        if args.dataset == "abide":
+            features_time, features_pearson, labels, train_list, test_list, val_list = process.load_abide(args.label_rate)
+            self.features_time = features_time.to(args.device)
+            self.features_pearson = features_pearson.to(args.device)
+            self.labels = labels.to(args.device)
+            self.train_list = [torch.LongTensor(idx).to(args.device) for idx in train_list]
+            self.test_list = [torch.LongTensor(idx).to(args.device) for idx in test_list]
+            self.val_list = [torch.LongTensor(idx).to(args.device) for idx in val_list]
+            self.args = args
+            # features = process.preprocess_features(features)

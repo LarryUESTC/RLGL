@@ -374,6 +374,45 @@ def load_freebase(sc=None):
     test = [torch.LongTensor(i) for i in test]
     return adj_list, feat_m, label, train[0], val[0], test[0]
 
+class StandardScaler:
+    """
+    Standard the input
+    """
+
+    def __init__(self, mean, std):
+        self.mean = mean
+        self.std = std
+
+    def transform(self, data):
+        return (data - self.mean) / self.std
+
+    def inverse_transform(self, data):
+        return (data * self.std) + self.mean
+
+def load_abide(label_rate = 0.8):
+    data = np.load('utils/data/ABIDE/abide.npy', allow_pickle=True).item()
+    final_fc = data["timeseires"]
+    final_pearson = data["corr"]
+    labels = data["label"]
+    site = data['site']
+    _, _, timeseries = final_fc.shape
+    _, node_size, node_feature_size = final_pearson.shape
+    scaler = StandardScaler(mean=np.mean(final_fc), std=np.std(final_fc))
+    final_fc = scaler.transform(final_fc)
+    final_fc, final_pearson, labels = [torch.from_numpy(
+        data).float() for data in (final_fc, final_pearson, labels)]
+    # split = StratifiedShuffleSplit(n_splits=1, test_size=0.3, random_state=42)
+
+    kf = StratifiedShuffleSplit(n_splits=5, train_size=label_rate, random_state=1)
+    train_list = []
+    val_list = []
+    test_list = []
+    for train_index, test_index in kf.split(final_fc, site):
+        train_list.append(list(train_index))
+        test_list.append(list(test_index)[:int(len(list(test_index))/2)])
+        val_list.append(list(test_index)[int(len(list(test_index))/2):])
+    return final_fc, final_pearson, labels, train_list, test_list, val_list
+
 
 def compute_ppr(adj: Tensor, alpha=0.2, self_loop=True) -> Tensor:  ### PPR (personalized PageRank)：
     adj = adj.numpy()

@@ -15,7 +15,7 @@ class Semi(object):
         self.parser.add_argument('--save_root', type=str, default="./saved_model", help='root for saving the model')
         self.parser.add_argument('--random_aug_feature', type=float, default=0.1, help='RA feature')
         self.parser.add_argument('--random_aug_edge', type=float, default=0.2, help='RA graph')
-        self.parser.add_argument('--gpu_num', type=int, default=2, help='the id of gpu to use')
+        self.parser.add_argument('--gpu_num', type=int, default=6, help='the id of gpu to use')
 
         self.args, _ = self.parser.parse_known_args()
 
@@ -24,7 +24,6 @@ class Semi(object):
 
     def get_parse(self):
         return self.args
-
 
 class Semi_Gcn(Semi):
     def __init__(self, method, dataset):
@@ -109,7 +108,7 @@ class Semi_SelfCons(Semi):
         self.parser.add_argument('--wd', type=int, default=5e-5, help='weight delay')
         self.parser.add_argument('--tau', type=int, default=1.0, help='tau for Ncontrastive')
         self.parser.add_argument('--gnn', type=str, default='GCN', help='gnn model')
-        self.parser.add_argument('--nb_epochs', type=int, default=1000)
+        self.parser.add_argument('--nb_epochs', type=int, default=3000)
         self.parser.add_argument('--cfg', type=list, default=[128, 128])
         ################END|add new params here|###############
         self.args, _ = self.parser.parse_known_args()
@@ -581,7 +580,7 @@ class Rein(object):
         self.parser.add_argument('--random_aug_edge', type=float, default=0.2, help='RA graph')
         self.parser.add_argument('--gnn', type=str, default='GCN_org', help='RA graph')
         self.parser.add_argument('--feature_dimension', type=int, default=32, help='learning rate')
-        self.parser.add_argument('--nb_epochs', type=int, default=1000, help='nb_epochs')
+        self.parser.add_argument('--nb_epochs', type=int, default=50000, help='nb_epochs')
         self.args, _ = self.parser.parse_known_args()
 
     def replace(self):
@@ -694,6 +693,31 @@ class ImgCls_ViG_CIFA10(ImgCls_ViG):
         self.args.__setattr__('lr', 0.05)
         self.args.__setattr__('image_size', 32)
 
+class Brain(object):
+    def __init__(self, method, dataset):
+        self.parser = argparse.ArgumentParser()
+        self.parser.add_argument('--dataset', nargs='?', default=dataset)
+        self.parser.add_argument('--method', nargs='?', default=method)
+        self.parser.add_argument('--label_rate', nargs='?', default=0.8)
+        self.parser.add_argument('--task', type=str, default='brain')
+        self.parser.add_argument('--lr', type=float, default=0.0005, help='learning rate')
+        self.parser.add_argument('--wd', type=float, default=5e-5, help='learning rate')
+        self.parser.add_argument('--nb_epochs', type=int, default=5000, help='learning rate')
+        self.parser.add_argument('--patience', type=int, default=40, help='patience for early stopping')
+        self.parser.add_argument('--seed', type=int, default=0, help='the seed to use')
+        self.parser.add_argument('--save_root', type=str, default="./saved_model", help='root for saving the model')
+        self.parser.add_argument('--random_aug_feature', type=float, default=0.2, help='RA feature')
+        self.parser.add_argument('--random_aug_edge', type=float, default=0.2, help='RA graph')
+        self.parser.add_argument('--gpu_num', type=int, default=6, help='the id of gpu to use')
+
+        self.args, _ = self.parser.parse_known_args()
+
+    def replace(self):
+        pass
+
+    def get_parse(self):
+        return self.args
+
 
 ################END|Vision Graph|###############
 
@@ -729,6 +753,7 @@ params_key = {
     'ImgCls': ImgCls,
     'ImgCls_ViG': ImgCls_ViG,
     'ImgCls_ViG_CIFA10': ImgCls_ViG_CIFA10,
+    'Brain': Brain,
 }
 
 
