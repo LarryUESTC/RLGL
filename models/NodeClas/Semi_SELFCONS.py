@@ -79,7 +79,6 @@ def calc_entropy(input_tensor):
 def get_clones(module, N):
     return nn.ModuleList([copy.deepcopy(module) for i in range(N)])
 
-
 def attention(q, k, v, d_k, mask=None, dropout=None):
     scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(d_k)
     # scores = torch.where(scores > 1.1 * scores.mean(), scores, torch.zeros_like(scores))
@@ -97,8 +96,6 @@ def attention(q, k, v, d_k, mask=None, dropout=None):
 
     output = torch.matmul(scores, v)
     return output
-
-
 
 class MultiHeadAttention_new(nn.Module):
     def __init__(self, heads, d_model_in, d_model_out, dropout=0.1):
@@ -136,8 +133,6 @@ class MultiHeadAttention_new(nn.Module):
         output = self.out(concat)
 
         return output
-
-
 
 class FeedForward(nn.Module):
     def __init__(self, d_model, d_ff=2048, dropout=0.1):
@@ -319,9 +314,11 @@ class SELFCONS(embedder_single):
         self.psudo_labels = pre_embedding.max(1)[1].type_as(self.labels)
         self.entropy_graph = -torch.log(pre_embedding_entropy.view(self.N, 1).repeat(1, self.N) * pre_embedding_entropy.view(1, self.N).repeat(self.N, 1) + 0.0001)
         self.lable_matrix = (self.psudo_labels.view(self.N, 1).repeat(1, self.N) == self.psudo_labels.view(1,self.N).repeat(self.N, 1)) + 0.0
+        self.S = get_feature_dis(pre_embedding)
         # self.lable_matrix -=  ((self.psudo_labels.view(self.N, 1).repeat(1, self.N) != self.psudo_labels.view(1,self.N).repeat(self.N, 1)) + 0.0)*0.5
         G = torch.eye(self.N).to(self.args.device)
-        G[self.top_entropy_idx] = self.lable_matrix[self.top_entropy_idx]
+        A= torch.exp(self.S) * self.lable_matrix
+        G[self.top_entropy_idx] = A[self.top_entropy_idx]
         # G = self.lable_matrix * self.entropy_graph * 0.1
         self.G = G
         return G
@@ -365,11 +362,11 @@ class SELFCONS(embedder_single):
         for epoch in range(self.args.nb_epochs):
             self.model.train()
             optimiser.zero_grad()
-            if epoch % 1000 == 0 and epoch!=0:
+            if epoch == 200 and epoch!=0:
                 self.entropy_top = 1000
                 G = self.generate_G()
-                G_A = F.normalize(G, p=1) + graph_org_torch
-                adj_label = G_A@G_A
+                G_A = G #F.normalize(G, p=1) #+ graph_org_torch
+                adj_label = G_A
             input_feature = features
             embeds, x_dis = self.model(input_feature)
             self.buffer.psudo_labels.append(embeds.detach())

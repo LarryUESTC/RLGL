@@ -27,121 +27,6 @@ class LogReg(nn.Module):
         ret = self.fc(x)
         return ret
 
-def get_feature_dis(x):
-    """
-    x :           batch_size x nhid
-    x_dis(i,j):   item means the similarity between x(i) and x(j).
-    """
-    x_dis = x@x.T
-    mask = torch.eye(x_dis.shape[0]).to(x.device)
-    x_sum = torch.sum(x**2, 1).reshape(-1, 1)
-    x_sum = torch.sqrt(x_sum).reshape(-1, 1)
-    x_sum = x_sum @ x_sum.T
-    x_dis = x_dis*(x_sum**(-1))
-    x_dis = (1-mask) * x_dis
-    return x_dis
-
-def Ncontrast(x_dis, adj_label, tau = 1):
-    x_dis = torch.exp(tau * x_dis)
-    x_dis_sum = torch.sum(x_dis, 1)
-    x_dis_sum_pos = torch.sum(x_dis*adj_label, 1)
-    loss = -torch.log(x_dis_sum_pos * (x_dis_sum**(-1))+1e-8).mean()
-    return loss
-
-class RecordeBuffer:
-    def __init__(self):
-        self.psudo_labels = []
-        self.entropy = []
-        self.lenth = 0
-    def clear(self):
-        del self.psudo_labels[:]
-        del self.entropy[:]
-    def update(self):
-        self.lenth = len(self.psudo_labels)
-        if self.lenth > 100:
-            del self.psudo_labels[0]
-            del self.entropy[0]
-
-def calc_entropy(input_tensor):
-    lsm = nn.LogSoftmax()
-    log_probs = lsm(input_tensor)
-    probs = torch.exp(log_probs)
-    p_log_p = log_probs * probs
-    entropy = -p_log_p.sum(dim=-1)
-    return entropy
-
-def get_clones(module, N):
-    return nn.ModuleList([copy.deepcopy(module) for i in range(N)])
-
-def attention(q, k, v, d_k, mask=None, dropout=None):
-    scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(d_k)
-    # scores = torch.where(scores > 1.1 * scores.mean(), scores, torch.zeros_like(scores))
-
-    if mask is not None:
-        mask = mask.unsqueeze(0)
-        scores = scores.masked_fill(mask == 0, -1e9)
-
-    scores = F.softmax(scores, dim=-1)
-    scores = torch.where(scores > scores.mean(), scores, torch.zeros_like(scores))
-    scores = F.softmax(scores, dim=-1)
-
-    if dropout is not None:
-        scores = dropout(scores)
-
-    output = torch.matmul(scores, v)
-    return output
-
-class MultiHeadAttention_new(nn.Module):
-    def __init__(self, heads, d_model_in, d_model_out, dropout=0.1):
-        super().__init__()
-
-        self.d_model = d_model_out
-        self.d_k = d_model_out // heads
-        self.h = heads
-
-        self.q_linear = nn.Linear(d_model_in, d_model_out)
-        self.v_linear = nn.Linear(d_model_in, d_model_out)
-        self.k_linear = nn.Linear(d_model_in, d_model_out)
-
-        self.dropout = nn.Dropout(dropout)
-        self.out = nn.Linear(d_model_out, d_model_out)
-
-    def forward(self, q, k, v, mask=None):
-        bs = q.size(0)
-
-        # perform linear operation and split into N heads
-        k = self.k_linear(k).view(bs, self.h, self.d_k)
-        q = self.q_linear(q).view(bs, self.h, self.d_k)
-        v = self.v_linear(v).view(bs, self.h, self.d_k)
-
-        # transpose to get dimensions bs * N * sl * d_model
-        k = k.transpose(1, 0)
-        q = q.transpose(1, 0)
-        v = v.transpose(1, 0)
-
-        # calculate attention using function we will define next
-        scores = attention(q, k, v, self.d_k, mask, self.dropout)
-
-        # concatenate heads and put through final linear layer
-        concat = scores.transpose(0, 1).contiguous().view(bs, self.d_model)
-        output = self.out(concat)
-
-        return output
-
-class FeedForward(nn.Module):
-    def __init__(self, d_model, d_ff=2048, dropout=0.1):
-        super().__init__()
-
-        # We set d_ff as a default to 2048
-        self.linear_1 = nn.Linear(d_model, d_ff)
-        self.dropout = nn.Dropout(dropout)
-        self.linear_2 = nn.Linear(d_ff, d_model)
-
-    def forward(self, x):
-        x = self.dropout(F.relu(self.linear_1(x)))
-        x = self.linear_2(x)
-        return x
-
 class Norm(nn.Module):
     def __init__(self, d_model, eps=1e-6):
         super().__init__()
@@ -158,24 +43,6 @@ class Norm(nn.Module):
         norm = self.alpha * (x - x.mean(dim=-1, keepdim=True)) \
                / (x.std(dim=-1, keepdim=True) + self.eps) + self.bias
         return norm
-
-class EncoderLayer(nn.Module):
-    def __init__(self, d_model, heads, dropout=0.1):
-        super().__init__()
-        self.norm_1 = Norm(d_model)
-        self.norm_2 = Norm(d_model)
-        self.attn = MultiHeadAttention_new(heads, d_model,d_model, dropout=dropout)
-        self.ff = FeedForward(d_model, dropout=dropout)
-        self.dropout_1 = nn.Dropout(dropout)
-        self.dropout_2 = nn.Dropout(dropout)
-
-    def forward(self, x, mask =None):
-        x2 = self.norm_1(x)
-        x = x + self.dropout_1(self.attn(x2, x2, x2, mask))
-        x2 = self.norm_2(x)
-        x = x + self.dropout_2(self.ff(x2))
-        return x
-
 
 class SSL_Trans(nn.Module):
     def __init__(self, n_in ,cfg = None, batch_norm=True, act='leakyrelu', dropout = 0.1, final_mlp = 0):
@@ -250,36 +117,7 @@ class SSL_Trans(nn.Module):
 
         return F.log_softmax(CONN_INDEX, dim=1)
 
-class Trans(nn.Module):
-    def __init__(self, n_in,  dropout = 0.1):
-        super(Trans, self).__init__()
-        self.dropout = dropout
-        self.hid_dim= n_in #if final_mlp == 0 else cfg[-1]
-        self.Trans_layer_num = 2
-        self.nheads = 4
-        self.nclass = 2
-        self.Linear_selfC = get_clones(nn.Linear(int(self.hid_dim / self.nheads), self.nclass), self.nheads)
-        self.Trans_layers = get_clones(EncoderLayer(self.hid_dim, self.nheads, self.dropout), self.Trans_layer_num)
-        self.norm_trans = Norm(int(self.hid_dim / self.nheads))
-
-    def forward(self, x_input, dropout = 0.0):
-
-        x = x_input
-        for i in range(self.Trans_layer_num):
-            x = self.Trans_layers[i](x)
-
-        D_dim_single = int(self.hid_dim/self.nheads)
-        CONN_INDEX = torch.zeros((x.shape[0],self.nclass)).to(x.device)
-        for Head_i in range(self.nheads):
-            feature_cls_sin = x[:, Head_i*D_dim_single:(Head_i+1)*D_dim_single]
-            feature_cls_sin = self.norm_trans(feature_cls_sin)
-            Linear_out_one = self.Linear_selfC[Head_i](feature_cls_sin)
-            # CONN_INDEX += F.softmax(Linear_out_one - Linear_out_one.sort(descending= True)[0][:,3].unsqueeze(1), dim=1)
-            CONN_INDEX += F.softmax(Linear_out_one, dim=1)
-
-        return F.log_softmax(CONN_INDEX, dim=1)
-
-class SELFBRAIN(embedder_brain):
+class SELFBRAINMLP(embedder_brain):
     def __init__(self, args):
         embedder_brain.__init__(self, args)
         self.args = args
@@ -297,7 +135,6 @@ class SELFBRAIN(embedder_brain):
     def fold_train(self):
         current_time = datetime.now().strftime('%b%d_%H-%M:%S')
         logdir = os.path.join('runs6', current_time + '_selfbrain_'+ str(self.args.seed)+ '_flod_'+str(self.fold_num))
-        self.buffer = RecordeBuffer()
         self.writer_tb = SummaryWriter(log_dir = logdir)
         self.features = self.features_pearson[:,self.mask]
         self.N = self.features_pearson.size()[0]

@@ -700,7 +700,7 @@ class Brain(object):
         self.parser.add_argument('--method', nargs='?', default=method)
         self.parser.add_argument('--label_rate', nargs='?', default=0.8)
         self.parser.add_argument('--task', type=str, default='brain')
-        self.parser.add_argument('--lr', type=float, default=0.0005, help='learning rate')
+        self.parser.add_argument('--lr', type=float, default=0.001, help='learning rate')
         self.parser.add_argument('--wd', type=float, default=5e-5, help='learning rate')
         self.parser.add_argument('--nb_epochs', type=int, default=5000, help='learning rate')
         self.parser.add_argument('--patience', type=int, default=40, help='patience for early stopping')

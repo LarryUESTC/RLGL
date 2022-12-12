@@ -109,9 +109,9 @@ def main(args):
 
 
 if __name__ == '__main__':
-    task = 'Brain'  # choice:Semi Unsup Sup Rein Noise ImgCls Brain
-    method = 'SelfBrain'  # choice: Gcn ViG GDP GcnMixup SelfCons GcnCR offlineRLG SelfBrain
-    dataset = 'abide'  # choice:Cora CiteSeer PubMed CIFAR10 abide
+    task = 'Semi'  # choice:Semi Unsup Sup Rein Noise ImgCls Brain
+    method = 'SelfCons'  # choice: Gcn ViG GDP GcnMixup SelfCons GcnCR offlineRLG SelfBrain
+    dataset = 'Cora'  # choice:Cora CiteSeer PubMed CIFAR10 abide
     args = parse_args(task, method, dataset)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
