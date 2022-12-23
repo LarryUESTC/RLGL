@@ -79,9 +79,10 @@ class SSL_Trans(nn.Module):
         self.Linear_selfC = nn.Linear(in_channels, self.hid_dim)
 
     def forward(self, x_input, dropout = 0.0):
-        # x = self.norm_layers[0](x_input)
+
         N, B, T = x_input.size()
         x = x_input.view(N*B, T)
+        # x = self.norm_layers[0](x)
         for i in range(len(self.MLP_layers)):
             x = F.dropout(x, dropout, training=self.training)
             x = self.MLP_layers[i](x)
@@ -96,6 +97,14 @@ def get_x(features_time, lenth):
     out_time = features_time[:,:,stat_point:stat_point+lenth]
     return out_time
 
+def get_x_test(features_time, lenth):
+    N, B, total_lenth = features_time.size()
+    window_size = int(total_lenth / lenth)
+    out_time_list = []
+    for i in range(window_size):
+        out_time = features_time[:,:,lenth*i:lenth*(i+1)]
+        out_time_list.append(out_time)
+    return out_time_list
 
 
 class SELFBRAINMLP(embedder_brain):
@@ -116,11 +125,16 @@ class SELFBRAINMLP(embedder_brain):
 
     def fold_train(self):
         current_time = datetime.now().strftime('%b%d_%H-%M:%S')
-        logdir = os.path.join('runs6', current_time + '_selfbrain_'+ str(self.args.seed)+ '_flod_'+str(self.fold_num))
+        logdir = os.path.join('runs7', current_time + '_selfbrain_'+ str(self.args.seed)+ '_flod_'+str(self.fold_num))
         self.writer_tb = SummaryWriter(log_dir = logdir)
         self.features = self.features_pearson[:,self.mask]
         self.N = self.features_pearson.size()[0]
-        self.cfg = [256,  128, 64, 64]
+
+        accs_ori, precision_ori, recall_ori, f1_ori, auc_ori = self.original_test()
+        string_1 = Fore.GREEN + "Ori |accs: {:.3f},auc: {:.3f},pre: {:.3f},recall: {:.3f},f1: {:.3f}".format(accs_ori, auc_ori, precision_ori, recall_ori, f1_ori)
+        print(string_1)
+
+        self.cfg = [64,  64, 64, 32, 16]
         self.lenth = 50
         self.model = SSL_Trans(n_in = self.lenth, cfg= self.cfg)
         optimiser = torch.optim.Adam(self.model.parameters(), lr=self.args.lr, weight_decay=self.args.wd)
@@ -131,8 +145,8 @@ class SELFBRAINMLP(embedder_brain):
         for epoch in range(self.args.nb_epochs):
             self.model.train()
             optimiser.zero_grad()
-            X_a = get_x(self.features_time, self.lenth)
-            X_b = get_x(self.features_time, self.lenth)
+            X_a = get_x(self.features_time[self.train_index], self.lenth)
+            X_b = get_x(self.features_time[self.train_index], self.lenth)
 
             embeding_a = self.model(X_a)
             embeding_b = self.model(X_b)
@@ -145,8 +159,8 @@ class SELFBRAINMLP(embedder_brain):
 
             loss.backward()
             optimiser.step()
-            string_1 = Fore.GREEN + "Epoch:{:} |loss: {:.3f}".format(epoch, loss.item())
-            print(string_1)
+            # string_1 = Fore.GREEN + "Epoch:{:} |loss: {:.3f}".format(epoch, loss.item())
+            # print(string_1)
             self.writer_tb.add_scalar('loss', loss.item(), epoch)
 
             if epoch % 10 == 0 and epoch != 0:
@@ -167,27 +181,74 @@ class SELFBRAINMLP(embedder_brain):
 
     def flod_test(self):
         self.model.eval()
-        embeds = self.model(self.features).detach()
-        train_embs = embeds[self.train_index]
-        test_embs = embeds[self.test_index]
-        val_embs = embeds[self.val_index]
+        # embeds = self.model(self.features).detach()
+        # train_embs = embeds[self.train_index]
+        # test_embs = embeds[self.test_index]
+        # val_embs = embeds[self.val_index]
         train_labels = self.labels[self.train_index]
         test_labels = self.labels[self.test_index]
         val_labels = self.labels[self.val_index]
 
-        X_a = get_x(self.features_time, self.lenth)
-        embeding_a = self.model(X_a)
-        S = torch.bmm(embeding_a, torch.transpose(embeding_a, 2, 1))
-        S_exp = torch.exp(S)
-
+        #todo
+        X_a_list = get_x_test(self.features_time, self.lenth)
+        embeds = 0
+        for X_a in X_a_list:
+            embeding_a = self.model(X_a).detach()
+            S = torch.bmm(embeding_a, torch.transpose(embeding_a, 2, 1))
+            S_exp = torch.exp(S)
+            embeds += S_exp[:, self.mask]
         ''' Linear Evaluation '''
+        train_embs = embeds[self.train_index]
+        test_embs = embeds[self.test_index]
+        val_embs = embeds[self.val_index]
+
         logreg = LogReg(train_embs.shape[1], 2)
         opt = torch.optim.Adam(logreg.parameters(), lr=0.01, weight_decay=0e-5)
 
         logreg = logreg.to(self.args.device)
         loss_fn = torch.nn.CrossEntropyLoss()
 
-        for epoch2 in range(100):
+        for epoch2 in range(200):
+            logreg.train()
+            opt.zero_grad()
+            logits = logreg(train_embs)
+            loss2 = loss_fn(logits, train_labels.long())
+            loss2.backward()
+            opt.step()
+
+        logreg.eval()
+        with torch.no_grad():
+            test_logits = logreg(test_embs)
+            pred = torch.argmax(test_logits, dim=1)
+
+            accs = accuracy_score(test_labels.cpu(), pred.cpu())
+            precision = precision_score(test_labels.cpu(), pred.cpu())
+            recall = recall_score(test_labels.cpu(), pred.cpu())
+            f1 = f1_score(test_labels.cpu(), pred.cpu())
+            try:
+                auc = roc_auc_score(test_labels.cpu(), pred.cpu())
+            except:
+                auc = f1 * 0
+
+        return accs, precision, recall, f1, auc
+
+    def original_test(self):
+        train_labels = self.labels[self.train_index]
+        test_labels = self.labels[self.test_index]
+        val_labels = self.labels[self.val_index]
+
+        embeds = self.features
+        train_embs = embeds[self.train_index]
+        test_embs = embeds[self.test_index]
+        val_embs = embeds[self.val_index]
+
+        logreg = LogReg(train_embs.shape[1], 2)
+        opt = torch.optim.Adam(logreg.parameters(), lr=0.01, weight_decay=0e-5)
+
+        logreg = logreg.to(self.args.device)
+        loss_fn = torch.nn.CrossEntropyLoss()
+
+        for epoch2 in range(200):
             logreg.train()
             opt.zero_grad()
             logits = logreg(train_embs)
