@@ -17,6 +17,7 @@ from tensorboardX import SummaryWriter
 import setproctitle
 setproctitle.setproctitle('PLLL')
 from datetime import datetime
+import random
 
 class LogReg(nn.Module):
     def __init__(self, hid_dim, out_dim):
@@ -77,45 +78,25 @@ class SSL_Trans(nn.Module):
 
         self.Linear_selfC = nn.Linear(in_channels, self.hid_dim)
 
-        self.Trans_layer_num = 2
-        self.nheads = 4
-        self.nclass = 2
-        self.Linear_selfC = get_clones(nn.Linear(int(self.hid_dim / self.nheads), self.nclass), self.nheads)
-        self.Trans_layers = get_clones(EncoderLayer(self.hid_dim, self.nheads, self.dropout), self.Trans_layer_num)
-        self.norm_trans = Norm(int(self.hid_dim / self.nheads))
-
-        # self.Linear_selfC = get_clones(nn.Linear(int(self.hid_dim / self.nheads), self.nclass), self.nheads)
-        # self.layers = get_clones(EncoderLayer(self.hid_dim, self.nheads, self.dropout), self.Trans_layer_num)
-        # self.norm_trans = Norm(int(self.hid_dim / self.nheads))
-
     def forward(self, x_input, dropout = 0.0):
         # x = self.norm_layers[0](x_input)
-        x = x_input
+        N, B, T = x_input.size()
+        x = x_input.view(N*B, T)
         for i in range(len(self.MLP_layers)):
             x = F.dropout(x, dropout, training=self.training)
             x = self.MLP_layers[i](x)
             x = self.act_layers[i](x)
             x = self.norm_layers[i+1](x)
         x = self.Linear_selfC(x)
-        return x
+        return x.view(N, B, -1)
 
-    def forward_g(self, x_input, dropout = 0.0):
+def get_x(features_time, lenth):
+    N, B, total_lenth = features_time.size()
+    stat_point = random.randint(0, total_lenth - lenth - 1)
+    out_time = features_time[:,:,stat_point:stat_point+lenth]
+    return out_time
 
-        x = self.forward(x_input)
-        x = x.detach()
-        for i in range(self.Trans_layer_num):
-            x = self.Trans_layers[i](x)
 
-        D_dim_single = int(self.hid_dim/self.nheads)
-        CONN_INDEX = torch.zeros((x.shape[0],self.nclass)).to(x.device)
-        for Head_i in range(self.nheads):
-            feature_cls_sin = x[:, Head_i*D_dim_single:(Head_i+1)*D_dim_single]
-            feature_cls_sin = self.norm_trans(feature_cls_sin)
-            Linear_out_one = self.Linear_selfC[Head_i](feature_cls_sin)
-            # CONN_INDEX += F.softmax(Linear_out_one - Linear_out_one.sort(descending= True)[0][:,3].unsqueeze(1), dim=1)
-            CONN_INDEX += F.softmax(Linear_out_one, dim=1)
-
-        return F.log_softmax(CONN_INDEX, dim=1)
 
 class SELFBRAINMLP(embedder_brain):
     def __init__(self, args):
@@ -131,6 +112,7 @@ class SELFBRAINMLP(embedder_brain):
         self.G = None
         self.mask = torch.triu((torch.ones(200,200) == 1),diagonal =1)
         self.input_dim = self.mask.sum().item()
+        self.batchsize = self.features_time.size()[0]
 
     def fold_train(self):
         current_time = datetime.now().strftime('%b%d_%H-%M:%S')
@@ -138,41 +120,34 @@ class SELFBRAINMLP(embedder_brain):
         self.writer_tb = SummaryWriter(log_dir = logdir)
         self.features = self.features_pearson[:,self.mask]
         self.N = self.features_pearson.size()[0]
-        self.cfg = [512,  512, 128, 128]
-        self.model = SSL_Trans(n_in = self.input_dim, cfg= self.cfg)
+        self.cfg = [256,  128, 64, 64]
+        self.lenth = 50
+        self.model = SSL_Trans(n_in = self.lenth, cfg= self.cfg)
         optimiser = torch.optim.Adam(self.model.parameters(), lr=self.args.lr, weight_decay=self.args.wd)
         self.model = self.model.to(self.args.device)
         I_target = torch.tensor(np.eye(self.cfg[-1])).to(self.args.device)
         N_target = torch.tensor(np.eye(self.N)).to(self.args.device)
-
+        B_target = torch.tensor(np.eye(200)).to(self.args.device) == 1
         for epoch in range(self.args.nb_epochs):
             self.model.train()
             optimiser.zero_grad()
-            X_a = F.dropout(self.features, 0.0)
-            X_b = F.dropout(self.features, 0.8)
+            X_a = get_x(self.features_time, self.lenth)
+            X_b = get_x(self.features_time, self.lenth)
 
             embeding_a = self.model(X_a)
             embeding_b = self.model(X_b)
+            S = torch.bmm(embeding_a, torch.transpose(embeding_b, 2, 1))
+            S_exp = torch.exp(S)
+            pos = S_exp[:,B_target]
+            dis = torch.sum(S_exp, -1)/200
+            loss = -torch.log(pos * (dis ** (-1)) + 1e-8).mean()
 
-            embeding_a = (embeding_a - embeding_a.mean(0)) / embeding_a.std(0)
-            embeding_b = (embeding_b - embeding_b.mean(0)) / embeding_b.std(0)
-
-            c1 = torch.mm(embeding_a.T, embeding_a)/ self.N
-            c2 = torch.mm(embeding_b.T, embeding_b)/ self.N
-
-            # dis_a = get_feature_dis(embeding_a)
-            # loss_Ncontrast = 0.1 * Ncontrast(dis_a, N_target)
-
-            loss_c1 = (I_target - c1).pow(2).mean() + torch.diag(c1).mean()
-            loss_c2 = (I_target - c2).pow(2).mean() + torch.diag(c2).mean()
-            loss_C = loss_c1 + loss_c2
-            loss_simi = cosine_similarity(embeding_a, embeding_b.detach(), dim=-1).mean()
-            loss = 1 - loss_simi + loss_C*5
 
             loss.backward()
             optimiser.step()
-            self.writer_tb.add_scalar('loss_C', loss_C.item(), epoch)
-            self.writer_tb.add_scalar('loss_simi', loss_simi.item(), epoch)
+            string_1 = Fore.GREEN + "Epoch:{:} |loss: {:.3f}".format(epoch, loss.item())
+            print(string_1)
+            self.writer_tb.add_scalar('loss', loss.item(), epoch)
 
             if epoch % 10 == 0 and epoch != 0:
                 accs, precision, recall, f1, auc = self.flod_test()
@@ -199,6 +174,12 @@ class SELFBRAINMLP(embedder_brain):
         train_labels = self.labels[self.train_index]
         test_labels = self.labels[self.test_index]
         val_labels = self.labels[self.val_index]
+
+        X_a = get_x(self.features_time, self.lenth)
+        embeding_a = self.model(X_a)
+        S = torch.bmm(embeding_a, torch.transpose(embeding_a, 2, 1))
+        S_exp = torch.exp(S)
+
         ''' Linear Evaluation '''
         logreg = LogReg(train_embs.shape[1], 2)
         opt = torch.optim.Adam(logreg.parameters(), lr=0.01, weight_decay=0e-5)
