@@ -88,8 +88,8 @@ def attention(q, k, v, d_k, mask=None, dropout=None):
         scores = scores.masked_fill(mask == 0, -1e9)
 
     scores = F.softmax(scores, dim=-1)
-    scores = torch.where(scores > scores.mean(), scores, torch.zeros_like(scores))
-    scores = F.softmax(scores, dim=-1)
+    scores = torch.where(scores > scores.mean(dim = -1).unsqueeze(dim = -1 ), scores, torch.zeros_like(scores))
+    # scores = F.softmax(scores, dim=-1)
 
     if dropout is not None:
         scores = dropout(scores)
@@ -272,7 +272,7 @@ class GAT_selfCon_Trans(nn.Module):
             feature_cls_sin = self.norm_trans(feature_cls_sin)
             Linear_out_one = self.Linear_selfC[Head_i](feature_cls_sin)
             # CONN_INDEX += F.softmax(Linear_out_one - Linear_out_one.sort(descending= True)[0][:,3].unsqueeze(1), dim=1)
-            CONN_INDEX += Linear_out_one
+            CONN_INDEX += F.softmax(Linear_out_one, dim=1)
         # x_dis = get_feature_dis(CONN_INDEX)
         return F.log_softmax(CONN_INDEX, dim=1), x_dis
 
@@ -362,11 +362,11 @@ class SELFCONS(embedder_single):
         for epoch in range(self.args.nb_epochs):
             self.model.train()
             optimiser.zero_grad()
-            if epoch == 200 and epoch!=0:
-                self.entropy_top = 1000
-                G = self.generate_G()
-                G_A = G #F.normalize(G, p=1) #+ graph_org_torch
-                adj_label = G_A
+            # if epoch == 200 and epoch!=0:
+            #     self.entropy_top = 1000
+            #     G = self.generate_G()
+            #     G_A = G #F.normalize(G, p=1) #+ graph_org_torch
+            #     adj_label = G_A
             input_feature = features
             embeds, x_dis = self.model(input_feature)
             self.buffer.psudo_labels.append(embeds.detach())
