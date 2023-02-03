@@ -248,7 +248,7 @@ def load_acm_mat(sc=3):
 
 
 def load_dblp(sc=3):
-    data = pkl.load(open("data/dblp.pkl", "rb"))
+    data = pkl.load(open("utils/data/dblp.pkl", "rb"))
     label = data['label']
 
     adj_edge1 = data["PAP"]
@@ -282,7 +282,7 @@ def load_dblp(sc=3):
 
 
 def load_imdb(sc=3):
-    data = pkl.load(open("data/imdb.pkl", "rb"))
+    data = pkl.load(open("utils/data/imdb.pkl", "rb"))
     label = data['label']
     ###########################################################
     adj_edge1 = data["MDM"]
@@ -313,7 +313,7 @@ def load_imdb(sc=3):
 
 
 def load_amazon(sc=3):
-    data = pkl.load(open("data/amazon.pkl", "rb"))
+    data = pkl.load(open("utils/data/amazon.pkl", "rb"))
     label = data['label']
 
     adj_edge1 = data["IVI"]

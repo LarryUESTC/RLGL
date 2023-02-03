@@ -140,7 +140,7 @@ class CCA_MGRL(embedder):
         I_target = torch.tensor(np.eye(self.cfg[-1])).to(self.args.device)
         print("Started training...")
 
-        model = CCA_MGRL_model(self.args.ft_size, self.args.view_num, cfg=self.cfg, dropout=0.2).to(self.args.device)
+        model = CCA_MGRL_model(self.args.ft_size, self.args.view_num, cfg=self.cfg, dropout=0.1).to(self.args.device)
         optimiser = torch.optim.Adam(model.parameters(), lr=self.args.lr)
 
         model.train()
@@ -166,7 +166,7 @@ class CCA_MGRL(embedder):
             loss_C = loss_c1 + loss_c2
             loss_simi = cosine_similarity(embeding_a, embeding_b, dim=-1).mean()
 
-            loss = 1 - loss_simi * 1 + loss_C * 1 + loss_local * 5
+            loss = 1 - loss_simi * 1 + loss_C * 0.1 + loss_local * 1
 
             loss.backward()
             optimiser.step()
