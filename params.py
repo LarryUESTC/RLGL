@@ -225,10 +225,10 @@ class Unsup_CCAMGRL_Imdb(Unsup_CCAMGRL):
     def replace(self):
         super(Unsup_CCAMGRL_Imdb, self).replace()
         self.args.__setattr__('dataset', 'imdb')
-        self.args.__setattr__('cfg', [512, 512, 256, 256])
+        self.args.__setattr__('cfg', [512, 512, 256, 256, 128, 128])
         self.args.__setattr__('lr', 0.001)
         self.args.__setattr__('nb_epochs', 5000)
-        self.args.__setattr__('test_epo', 200)
+        self.args.__setattr__('test_epo', 100)
         self.args.__setattr__('test_lr', 0.01)
 
 class Unsup_E2sgrl(Unsup):

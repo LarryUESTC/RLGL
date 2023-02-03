@@ -11,6 +11,7 @@ import torch.nn.functional as F
 import torch
 import torch.nn as nn
 import copy
+from models.Layers import act_layer
 from torch.nn.functional import cosine_similarity
 
 np.random.seed(0)
@@ -18,6 +19,23 @@ torch.backends.cudnn.deterministic = True
 torch.manual_seed(0)
 torch.cuda.manual_seed_all(0)
 random.seed(0)
+
+class Norm(nn.Module):
+    def __init__(self, d_model, eps=1e-6):
+        super().__init__()
+
+        self.size = d_model
+
+        # create two learnable parameters to calibrate normalisation
+        self.alpha = nn.Parameter(torch.ones(self.size))
+        self.bias = nn.Parameter(torch.zeros(self.size))
+
+        self.eps = eps
+
+    def forward(self, x):
+        norm = self.alpha * (x - x.mean(dim=-1, keepdim=True)) \
+               / (x.std(dim=-1, keepdim=True) + self.eps) + self.bias
+        return norm
 
 def get_clones(module, N):
     return nn.ModuleList([copy.deepcopy(module) for i in range(N)])
@@ -53,13 +71,14 @@ def local_make_mlplayers(in_channel, cfg, batch_norm=False, out_layer=None):
     layers = []
     in_channels = in_channel
     layer_num = len(cfg)
+    act = 'gelu'
     for i, v in enumerate(cfg):
         out_channels = v
         mlp = nn.Linear(in_channels, out_channels)
-        if batch_norm:
-            layers += [mlp, nn.BatchNorm1d(out_channels, affine=False), nn.ReLU()]
+        if batch_norm and i != (layer_num - 1):
+            layers += [mlp, Norm(out_channels), act_layer(act)]
         elif i != (layer_num - 1):
-            layers += [mlp, nn.ReLU()]
+            layers += [mlp, act_layer(act)]
         else:
             layers += [mlp]
         in_channels = out_channels
@@ -140,7 +159,7 @@ class CCA_MGRL(embedder):
         I_target = torch.tensor(np.eye(self.cfg[-1])).to(self.args.device)
         print("Started training...")
 
-        model = CCA_MGRL_model(self.args.ft_size, self.args.view_num, cfg=self.cfg, dropout=0.1).to(self.args.device)
+        model = CCA_MGRL_model(self.args.ft_size, self.args.view_num, cfg=self.cfg, dropout=0.2).to(self.args.device)
         optimiser = torch.optim.Adam(model.parameters(), lr=self.args.lr)
 
         model.train()
@@ -166,7 +185,7 @@ class CCA_MGRL(embedder):
             loss_C = loss_c1 + loss_c2
             loss_simi = cosine_similarity(embeding_a, embeding_b, dim=-1).mean()
 
-            loss = 1 - loss_simi * 1 + loss_C * 0.1 + loss_local * 1
+            loss = 1 - loss_simi * 1 + loss_C * 0.05 + loss_local * 1
 
             loss.backward()
             optimiser.step()
