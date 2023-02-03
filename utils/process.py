@@ -217,7 +217,7 @@ def load_cora(path="./data/Cora/", dataset="cora"):
     return adj, features, labels, idx_train, idx_val, idx_test
 
 def load_acm_mat(sc=3):
-    data = sio.loadmat('data/acm.mat')
+    data = sio.loadmat('utils/data/acm.mat')
     label = data['label']
 
     adj_edge1 = data["PLP"]

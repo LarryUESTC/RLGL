@@ -107,11 +107,15 @@ def main(args):
     main_one(config)
     ################END|set tune param|###############
 
-
+#todo list
+# 1. method name
+# 2. liner
+# 3. local perseve loss
+# 4.
 if __name__ == '__main__':
-    task = 'Brain'  # choice:Semi Unsup Sup Rein Noise ImgCls Brain
-    method = 'SelfBrainMLP'  # choice: Gcn ViG GDP GcnMixup SelfCons GcnCR offlineRLG SelfBrain SelfBrainMLP
-    dataset = 'abide'  # choice:Cora CiteSeer PubMed CIFAR10 abide
+    task = 'Unsup'  # choice:Semi Unsup Sup Rein Noise ImgCls Brain
+    method = 'CCAMGRL'  # choice: Gcn ViG GDP GcnMixup SelfCons GcnCR offlineRLG SelfBrain SelfBrainMLP CCAMGRL
+    dataset = 'Acm'  # choice:Cora CiteSeer PubMed CIFAR10 abide Acm
     args = parse_args(task, method, dataset)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False

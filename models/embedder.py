@@ -32,8 +32,8 @@ class embedder:
         adj_list = [process.sparse_mx_to_torch_sparse_tensor(adj) for adj in adj_list]
         adj_list = [adj.to_dense() for adj in adj_list]
         adj_list = [process.normalize_graph(adj) for adj in adj_list]
-        # if args.sparse_adj:
-        adj_list = [adj.to_sparse() for adj in adj_list]
+        if args.sparse_adj:
+            adj_list = [adj.to_sparse() for adj in adj_list]
         args.nb_nodes = adj_list[0].shape[0]
         args.nb_classes = labels.shape[1]
         args.ft_size = features.shape[1]

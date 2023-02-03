@@ -166,7 +166,7 @@ class Unsup(object):
         self.parser.add_argument('--save_root', type=str, default="./saved_model", help='root for saving the model')
         self.parser.add_argument('--random_aug_feature', type=float, default=0.2, help='RA feature')
         self.parser.add_argument('--random_aug_edge', type=float, default=0.2, help='RA graph')
-
+        self.parser.add_argument('--sparse_adj', type=bool, default=False, help='sparse_adj')
         self.parser.add_argument('--cfg', type=int, default=[512, 128], help='hidden dimension')
         self.parser.add_argument('--nb_epochs', type=int, default=400, help='the number of epochs')
         self.parser.add_argument('--test_epo', type=int, default=100, help='test_epo')
@@ -179,6 +179,41 @@ class Unsup(object):
 
     def get_parse(self):
         return self.args
+
+class Unsup_CCAMGRL(Unsup):
+    def __init__(self, method, dataset):
+        super(Unsup_CCAMGRL, self).__init__(method, dataset)
+        self.parser.add_argument('--sc', type=int, default=3, help='')
+        self.parser.add_argument('--neg_num', type=int, default=2, help='the number of negtives')
+        # self.parser.add_argument('--margin1', type=float, default=0.8, help='')
+        # self.parser.add_argument('--margin2', type=float, default=0.4, help='')
+        # self.parser.add_argument('--w_s', type=float, default=10, help='weight of loss L_s')
+        # self.parser.add_argument('--w_c', type=float, default=10, help='weight of loss L_c')
+        # self.parser.add_argument('--w_ms', type=float, default=1, help='weight of loss L_ms')
+        # self.parser.add_argument('--w_u', type=float, default=1, help='weight of loss L_u')
+
+        self.args, _ = self.parser.parse_known_args()
+        self.replace()
+
+    def replace(self):
+        super(Unsup_CCAMGRL, self).replace()
+        self.args.__setattr__('method', 'CCA_MGRL')
+
+class Unsup_CCAMGRL_Acm(Unsup_CCAMGRL):
+    def __init__(self, method, dataset):
+        super(Unsup_CCAMGRL_Acm, self).__init__(method, dataset)
+        self.parser.add_argument('--view_num', type=int, default=2, help='view number')
+        self.args, _ = self.parser.parse_known_args()
+        self.replace()
+
+    def replace(self):
+        super(Unsup_CCAMGRL_Acm, self).replace()
+        self.args.__setattr__('dataset', 'acm')
+        self.args.__setattr__('cfg', [512, 512, 256, 256, 256, 128])
+        self.args.__setattr__('lr', 0.001)
+        self.args.__setattr__('nb_epochs', 5000)
+        self.args.__setattr__('test_epo', 100)
+        self.args.__setattr__('test_lr', 0.01)
 
 
 class Unsup_E2sgrl(Unsup):
@@ -729,6 +764,8 @@ params_key = {
     'Semi_SelfCons': Semi_SelfCons,
     'Semi_Gcn_Cora': Semi_Gcn_Cora,
     'Unsup': Unsup,
+    'Unsup_CCAMGRL': Unsup_CCAMGRL,
+    'Unsup_CCAMGRL_Acm': Unsup_CCAMGRL_Acm,
     'Unsup_E2sgrl': Unsup_E2sgrl,
     'Unsup_E2sgrl_Acm': Unsup_E2sgrl_Acm,
     'Unsup_E2sgrl_Dblp': Unsup_E2sgrl_Dblp,

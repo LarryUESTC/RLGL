@@ -18,7 +18,7 @@ from models.NodeClas.Semi_CR import GCNCR
 from models.VisionGraph.PyramidViG import PyramidViG as IMGCLS_VIG
 from models.Brain.Self_Brain import SELFBRAIN
 from models.Brain.Self_Brain_MLP import SELFBRAINMLP
-
+from models.Self.CCA_MGRL import CCA_MGRL
 method_dict = {
 'E2_SGRL':E2_SGRL,
 'SEMI_GCN':Semi_GCN,
@@ -30,6 +30,7 @@ method_dict = {
 'RLGL':RLGL,
 'OFFLINERLG':offlineRLG,
 'SGRL':SGRL,
+'CCA_MGRL':CCA_MGRL,
 'RLG':RLG,
 'RLGDQN':RLGDQN,
 'SUGRL':SUGRL,
