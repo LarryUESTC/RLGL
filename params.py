@@ -186,11 +186,12 @@ class Unsup_CCAMGRL(Unsup):
         self.parser.add_argument('--sc', type=int, default=1, help='')
         self.parser.add_argument('--neg_num', type=int, default=2, help='the number of negtives')
         # self.parser.add_argument('--margin1', type=float, default=0.8, help='')
-        # self.parser.add_argument('--margin2', type=float, default=0.4, help='')
-        # self.parser.add_argument('--w_s', type=float, default=10, help='weight of loss L_s')
-        # self.parser.add_argument('--w_c', type=float, default=10, help='weight of loss L_c')
-        # self.parser.add_argument('--w_ms', type=float, default=1, help='weight of loss L_ms')
-        # self.parser.add_argument('--w_u', type=float, default=1, help='weight of loss L_u')
+        self.parser.add_argument('--dropout', type=float, default=0.2, help='dropout')
+        self.parser.add_argument('--w_s', type=float, default=1, help='weight of loss loss_simi')
+        self.parser.add_argument('--w_c', type=float, default=0.01, help='weight of loss loss_C')
+        self.parser.add_argument('--w_l', type=float, default=1, help='weight of loss loss_local')
+        self.parser.add_argument('--tau', type=float, default=1.0, help='weight of tau')
+        self.parser.add_argument('--A_r', type=int, default=2, help='weight of A_r')
 
         self.args, _ = self.parser.parse_known_args()
         self.replace()
@@ -214,6 +215,10 @@ class Unsup_CCAMGRL_Acm(Unsup_CCAMGRL):
         self.args.__setattr__('nb_epochs', 5000)
         self.args.__setattr__('test_epo', 100)
         self.args.__setattr__('test_lr', 0.01)
+        self.args.__setattr__('w_s', 5)
+        self.args.__setattr__('w_c', 0.01)
+        self.args.__setattr__('w_l', 5)
+        self.args.__setattr__('tau', 1.0)
 
 class Unsup_CCAMGRL_Imdb(Unsup_CCAMGRL):
     def __init__(self, method, dataset):
@@ -230,6 +235,50 @@ class Unsup_CCAMGRL_Imdb(Unsup_CCAMGRL):
         self.args.__setattr__('nb_epochs', 5000)
         self.args.__setattr__('test_epo', 100)
         self.args.__setattr__('test_lr', 0.01)
+        self.args.__setattr__('w_s', 1)
+        self.args.__setattr__('w_c', 0.05)
+        self.args.__setattr__('w_l', 1)
+        self.args.__setattr__('tau', 1.0)
+
+class Unsup_CCAMGRL_Dblp(Unsup_CCAMGRL):
+    def __init__(self, method, dataset):
+        super(Unsup_CCAMGRL_Dblp, self).__init__(method, dataset)
+        self.parser.add_argument('--view_num', type=int, default=3, help='view number')
+        self.args, _ = self.parser.parse_known_args()
+        self.replace()
+
+    def replace(self):
+        super(Unsup_CCAMGRL_Dblp, self).replace()
+        self.args.__setattr__('dataset', 'dblp')
+        self.args.__setattr__('cfg', [512, 512, 256, 256, 128, 128])
+        self.args.__setattr__('lr', 0.001)
+        self.args.__setattr__('nb_epochs', 5000)
+        self.args.__setattr__('test_epo', 100)
+        self.args.__setattr__('test_lr', 0.01)
+        self.args.__setattr__('w_s', 1)
+        self.args.__setattr__('w_c', 0.05)
+        self.args.__setattr__('w_l', 1)
+        self.args.__setattr__('tau', 1.0)
+
+class Unsup_CCAMGRL_Freebase(Unsup_CCAMGRL):
+    def __init__(self, method, dataset):
+        super(Unsup_CCAMGRL_Freebase, self).__init__(method, dataset)
+        self.parser.add_argument('--view_num', type=int, default=3, help='view number')
+        self.args, _ = self.parser.parse_known_args()
+        self.replace()
+
+    def replace(self):
+        super(Unsup_CCAMGRL_Freebase, self).replace()
+        self.args.__setattr__('dataset', 'freebase')
+        self.args.__setattr__('cfg', [512, 512, 256, 256, 128, 128])
+        self.args.__setattr__('lr', 0.001)
+        self.args.__setattr__('nb_epochs', 5000)
+        self.args.__setattr__('test_epo', 100)
+        self.args.__setattr__('test_lr', 0.01)
+        self.args.__setattr__('w_s', 1)
+        self.args.__setattr__('w_c', 0.01)
+        self.args.__setattr__('w_l', 0)
+        self.args.__setattr__('tau', 1.0)
 
 class Unsup_E2sgrl(Unsup):
     def __init__(self, method, dataset):
@@ -782,6 +831,8 @@ params_key = {
     'Unsup_CCAMGRL': Unsup_CCAMGRL,
     'Unsup_CCAMGRL_Acm': Unsup_CCAMGRL_Acm,
     'Unsup_CCAMGRL_Imdb': Unsup_CCAMGRL_Imdb,
+    'Unsup_CCAMGRL_Dblp': Unsup_CCAMGRL_Dblp,
+    'Unsup_CCAMGRL_Freebase': Unsup_CCAMGRL_Freebase,
     'Unsup_E2sgrl': Unsup_E2sgrl,
     'Unsup_E2sgrl_Acm': Unsup_E2sgrl_Acm,
     'Unsup_E2sgrl_Dblp': Unsup_E2sgrl_Dblp,

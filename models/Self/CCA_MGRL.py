@@ -53,6 +53,35 @@ def Ncontrast(x_dis, adj_label, tau = 1.0):
     loss = -torch.log(x_dis_sum_pos * (x_dis_sum**(-1))+1e-8).mean()
     return loss
 
+def CCASSL(z_list, N, I_target, num_view):
+    if num_view == 2:
+        embeding_a = z_list[0]
+        embeding_b = z_list[1]
+        embeding_a = (embeding_a - embeding_a.mean(0)) / embeding_a.std(0)
+        embeding_b = (embeding_b - embeding_b.mean(0)) / embeding_b.std(0)
+        c1 = torch.mm(embeding_a.T, embeding_a) / N
+        c2 = torch.mm(embeding_b.T, embeding_b) / N
+        loss_c1 = (I_target - c1).pow(2).mean() + torch.diag(c1).mean()
+        loss_c2 = (I_target - c2).pow(2).mean() + torch.diag(c2).mean()
+        loss_C = loss_c1 + loss_c2
+        loss_simi = cosine_similarity(embeding_a, embeding_b, dim=-1).mean()
+    else:
+        embeding_a = z_list[0]
+        embeding_b = z_list[1]
+        embeding_c = z_list[2]
+        embeding_a = (embeding_a - embeding_a.mean(0)) / embeding_a.std(0)
+        embeding_b = (embeding_b - embeding_b.mean(0)) / embeding_b.std(0)
+        embeding_c = (embeding_c - embeding_c.mean(0)) / embeding_c.std(0)
+        c1 = torch.mm(embeding_a.T, embeding_a) / N
+        c2 = torch.mm(embeding_b.T, embeding_b) / N
+        c3 = torch.mm(embeding_c.T, embeding_c) / N
+        loss_c1 = (I_target - c1).pow(2).mean() + torch.diag(c1).mean()
+        loss_c2 = (I_target - c2).pow(2).mean() + torch.diag(c2).mean()
+        loss_c3 = (I_target - c3).pow(2).mean() + torch.diag(c3).mean()
+        loss_C = loss_c1 + loss_c2 + loss_c3
+        loss_simi = cosine_similarity(embeding_a, embeding_b, dim=-1).mean() + cosine_similarity(embeding_a, embeding_c, dim=-1).mean() + cosine_similarity(embeding_b, embeding_c, dim=-1).mean()
+    return loss_C, loss_simi
+
 def get_feature_dis(x):
     """
     x :           batch_size x nhid
@@ -63,7 +92,7 @@ def get_feature_dis(x):
     x_sum = torch.sum(x**2, 1).reshape(-1, 1)
     x_sum = torch.sqrt(x_sum).reshape(-1, 1)
     x_sum = x_sum @ x_sum.T
-    x_dis = x_dis*(x_sum**(-1))
+    x_dis = x_dis*((x_sum+1e-8)**(-1))
     x_dis = (1-mask) * x_dis
     return x_dis
 
@@ -154,12 +183,14 @@ class CCA_MGRL(embedder):
 
         features = self.features.to(self.args.device)
         adj_list = [adj.to(self.args.device) for adj in self.adj_list]
-        adj_label_list = [adj @ adj for adj in adj_list]
+
+        adj_label_list = [get_A_r(adj, self.args.A_r) for adj in adj_list]
+
         N = features.size(0)
         I_target = torch.tensor(np.eye(self.cfg[-1])).to(self.args.device)
         print("Started training...")
 
-        model = CCA_MGRL_model(self.args.ft_size, self.args.view_num, cfg=self.cfg, dropout=0.2).to(self.args.device)
+        model = CCA_MGRL_model(self.args.ft_size, self.args.view_num, cfg=self.cfg, dropout=self.args.dropout).to(self.args.device)
         optimiser = torch.optim.Adam(model.parameters(), lr=self.args.lr)
 
         model.train()
@@ -172,20 +203,11 @@ class CCA_MGRL(embedder):
 
             loss_local = 0
             for i in range(self.args.view_num):
-                loss_local += 1 * Ncontrast(s_list[i], adj_label_list[i], tau=1.0)
+                loss_local += 1 * Ncontrast(s_list[i], adj_label_list[i], tau=self.args.tau)
 
-            embeding_a = z_list[0]
-            embeding_b = z_list[1]
-            embeding_a = (embeding_a - embeding_a.mean(0)) / embeding_a.std(0)
-            embeding_b = (embeding_b - embeding_b.mean(0)) / embeding_b.std(0)
-            c1 = torch.mm(embeding_a.T, embeding_a) / N
-            c2 = torch.mm(embeding_b.T, embeding_b) / N
-            loss_c1 = (I_target - c1).pow(2).mean() + torch.diag(c1).mean()
-            loss_c2 = (I_target - c2).pow(2).mean() + torch.diag(c2).mean()
-            loss_C = loss_c1 + loss_c2
-            loss_simi = cosine_similarity(embeding_a, embeding_b, dim=-1).mean()
 
-            loss = 1 - loss_simi * 1 + loss_C * 0.05 + loss_local * 1
+            loss_C, loss_simi = CCASSL(z_list, N, I_target, self.args.view_num)
+            loss = (1 - loss_simi + loss_C * self.args.w_c) * self.args.w_s + loss_local * self.args.w_l
 
             loss.backward()
             optimiser.step()
