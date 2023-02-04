@@ -46,7 +46,7 @@ def get_A_r(adj, r):
         adj_label = adj_label @ adj
     return adj_label
 
-def Ncontrast(x_dis, adj_label, tau = 1.0):
+def local_preserve(x_dis, adj_label, tau = 1.0):
     x_dis = torch.exp(tau * x_dis)
     x_dis_sum = torch.sum(x_dis, 1)
     x_dis_sum_pos = torch.sum(x_dis*adj_label, 1)
@@ -203,7 +203,7 @@ class CCA_MGRL(embedder):
 
             loss_local = 0
             for i in range(self.args.view_num):
-                loss_local += 1 * Ncontrast(s_list[i], adj_label_list[i], tau=self.args.tau)
+                loss_local += 1 * local_preserve(s_list[i], adj_label_list[i], tau=self.args.tau)
 
 
             loss_C, loss_simi = CCASSL(z_list, N, I_target, self.args.view_num)
