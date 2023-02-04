@@ -92,7 +92,7 @@ def get_feature_dis(x):
     x_sum = torch.sum(x**2, 1).reshape(-1, 1)
     x_sum = torch.sqrt(x_sum).reshape(-1, 1)
     x_sum = x_sum @ x_sum.T
-    x_dis = x_dis*((x_sum+1e-8)**(-1))
+    x_dis = x_dis*(x_sum**(-1))
     x_dis = (1-mask) * x_dis
     return x_dis
 

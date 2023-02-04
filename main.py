@@ -55,7 +55,7 @@ def main_one(config, checkpoint_dir=None):
     #     print("Change TABLE_NAME to create a new table")
     ################END|SQL|###############
 
-    current_args.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    current_args.device = torch.device('cuda:7' if torch.cuda.is_available() else 'cpu')
     ACC_seed = []
     Time_seed = []
     for seed in range(0, 5):
@@ -115,7 +115,7 @@ def main(args):
 if __name__ == '__main__':
     task = 'Unsup'  # choice:Semi Unsup Sup Rein Noise ImgCls Brain
     method = 'CCAMGRL'  # choice: Gcn ViG GDP GcnMixup SelfCons GcnCR offlineRLG SelfBrain SelfBrainMLP CCAMGRL
-    dataset = 'Freebase'  # choice:Cora CiteSeer PubMed CIFAR10 abide Acm Imdb Dblp
+    dataset = 'Freebase'  # choice:Cora CiteSeer PubMed CIFAR10 abide Acm Imdb Dblp Freebase Amazon
     args = parse_args(task, method, dataset)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False

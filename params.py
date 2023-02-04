@@ -270,15 +270,38 @@ class Unsup_CCAMGRL_Freebase(Unsup_CCAMGRL):
     def replace(self):
         super(Unsup_CCAMGRL_Freebase, self).replace()
         self.args.__setattr__('dataset', 'freebase')
+        self.args.__setattr__('cfg', [256, 256, 128, 128, 128])
+        self.args.__setattr__('lr', 0.001)
+        self.args.__setattr__('nb_epochs', 5000)
+        self.args.__setattr__('test_epo', 100)
+        self.args.__setattr__('test_lr', 0.01)
+        self.args.__setattr__('w_s', 1)
+        self.args.__setattr__('w_c', 0.002)
+        self.args.__setattr__('w_l', 1)
+        self.args.__setattr__('tau', 1.0)
+        self.args.__setattr__('sc', 1.0)
+        self.args.__setattr__('dropout', 0.0)
+
+class Unsup_CCAMGRL_Amazon(Unsup_CCAMGRL):
+    def __init__(self, method, dataset):
+        super(Unsup_CCAMGRL_Amazon, self).__init__(method, dataset)
+        self.parser.add_argument('--view_num', type=int, default=3, help='view number')
+        self.args, _ = self.parser.parse_known_args()
+        self.replace()
+
+    def replace(self):
+        super(Unsup_CCAMGRL_Amazon, self).replace()
+        self.args.__setattr__('dataset', 'amazon')
         self.args.__setattr__('cfg', [512, 512, 256, 256, 128, 128])
         self.args.__setattr__('lr', 0.001)
         self.args.__setattr__('nb_epochs', 5000)
         self.args.__setattr__('test_epo', 100)
         self.args.__setattr__('test_lr', 0.01)
         self.args.__setattr__('w_s', 1)
-        self.args.__setattr__('w_c', 0.01)
-        self.args.__setattr__('w_l', 0)
+        self.args.__setattr__('w_c', 0.05)
+        self.args.__setattr__('w_l', 1)
         self.args.__setattr__('tau', 1.0)
+        self.args.__setattr__('dropout', 0.0)
 
 class Unsup_E2sgrl(Unsup):
     def __init__(self, method, dataset):
@@ -833,6 +856,7 @@ params_key = {
     'Unsup_CCAMGRL_Imdb': Unsup_CCAMGRL_Imdb,
     'Unsup_CCAMGRL_Dblp': Unsup_CCAMGRL_Dblp,
     'Unsup_CCAMGRL_Freebase': Unsup_CCAMGRL_Freebase,
+    'Unsup_CCAMGRL_Amazon': Unsup_CCAMGRL_Amazon,
     'Unsup_E2sgrl': Unsup_E2sgrl,
     'Unsup_E2sgrl_Acm': Unsup_E2sgrl_Acm,
     'Unsup_E2sgrl_Dblp': Unsup_E2sgrl_Dblp,
