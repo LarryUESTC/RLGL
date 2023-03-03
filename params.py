@@ -183,7 +183,7 @@ class Unsup(object):
 class Unsup_CCAMGRL(Unsup):
     def __init__(self, method, dataset):
         super(Unsup_CCAMGRL, self).__init__(method, dataset)
-        self.parser.add_argument('--sc', type=int, default=1, help='')
+        self.parser.add_argument('--sc', type=int, default=0, help='')
         self.parser.add_argument('--neg_num', type=int, default=2, help='the number of negtives')
         # self.parser.add_argument('--margin1', type=float, default=0.8, help='')
         self.parser.add_argument('--dropout', type=float, default=0.2, help='dropout')

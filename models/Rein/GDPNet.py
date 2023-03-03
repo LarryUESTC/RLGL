@@ -341,10 +341,10 @@ class GDPNet(embedder_single):
         rewards = []
         acces = []
 
-        pre_model = GAT_selfCon_Trans(features.shape[-1], cfg=[256, 7], final_mlp=0, dropout=0.2, nheads=8,
-                                      Trans_layer_num=2).to(self.args.device)
-        pre_optimizer = torch.optim.Adam(pre_model.parameters(), lr=0.0005, weight_decay=0.0005)
-        adj_label = get_A_r(graph_org_torch, 4)
+        # pre_model = GAT_selfCon_Trans(features.shape[-1], cfg=[256, 7], final_mlp=0, dropout=0.2, nheads=8,
+        #                               Trans_layer_num=2).to(self.args.device)
+        # pre_optimizer = torch.optim.Adam(pre_model.parameters(), lr=0.0005, weight_decay=0.0005)
+        # adj_label = get_A_r(graph_org_torch, 4)
         for epoch in range(self.args.pretrain_epochs + self.args.nb_epochs):
             self.model.train()
             if epoch < self.args.pretrain_epochs:

@@ -95,8 +95,9 @@ def evaluate(embeds, idx_train, idx_val, idx_test, labels, seed,epoch,lr ,isTest
         micro_f1s.append(test_micro_f1s[max_iter])
 
     if isTest:
-        print("\t[Classification] ACC: {:.4f} ({:.4f}) | Macro-F1: {:.4f} ({:.4f}) | Micro-F1: {:.4f} ({:.4f})".format(
-            np.mean(accs), np.std(accs), np.mean(macro_f1s), np.std(macro_f1s), np.mean(micro_f1s), np.std(micro_f1s)))
+        pass
+        # print("\t[Classification] ACC: {:.4f} ({:.4f}) | Macro-F1: {:.4f} ({:.4f}) | Micro-F1: {:.4f} ({:.4f})".format(
+        #     np.mean(accs), np.std(accs), np.mean(macro_f1s), np.std(macro_f1s), np.mean(micro_f1s), np.std(micro_f1s)))
     else:
         return np.mean(macro_f1s_val), np.mean(macro_f1s)
 
@@ -136,7 +137,7 @@ def run_similarity_search(test_embs, test_lbls):
         st.append(str(np.round(np.mean(np.sum((selected_label == original_label), 1) / N), 4)))
 
     st = ','.join(st)
-    print("\t[Similarity] [5,10,20,50,100] : [{}]".format(st))
+    #print("\t[Similarity] [5,10,20,50,100] : [{}]".format(st))
     st = st.split(', ')
     return st
 
@@ -216,8 +217,8 @@ def run_kmeans(x, y, k):
 
     mean = np.mean(NMI_list)
     std = np.std(NMI_list)
-    print('\t[Clustering] NMI: {:.4f} | {:.4f}'.format(mean, std))
-    print('\t[Clustering] acc, nmi, ari: {:.4f} | {:.4f} | {:.4f} '.format(acc, nmi, adjscore))
+    # print('\t[Clustering] NMI: {:.4f} | {:.4f}'.format(mean, std))
+    # print('\t[Clustering] acc, nmi, ari: {:.4f} | {:.4f} | {:.4f} '.format(acc, nmi, adjscore))
     return NMI_list, NMI_list2
 
 def accuracy(output, labels):

@@ -188,7 +188,7 @@ class CCA_MGRL(embedder):
 
         N = features.size(0)
         I_target = torch.tensor(np.eye(self.cfg[-1])).to(self.args.device)
-        print("Started training...")
+        # print("Started training...")
 
         model = CCA_MGRL_model(self.args.ft_size, self.args.view_num, cfg=self.cfg, dropout=self.args.dropout).to(self.args.device)
         optimiser = torch.optim.Adam(model.parameters(), lr=self.args.lr)
@@ -196,7 +196,8 @@ class CCA_MGRL(embedder):
         model.train()
         start = time.time()
 
-        for epoch in tqdm(range(self.args.nb_epochs)):
+        # for epoch in tqdm(range(self.args.nb_epochs)):
+        for epoch in range(self.args.nb_epochs):
             model.train()
             optimiser.zero_grad()
             z_list, s_list, z_fusion = model(features, adj_list)
@@ -207,25 +208,26 @@ class CCA_MGRL(embedder):
 
 
             loss_C, loss_simi = CCASSL(z_list, N, I_target, self.args.view_num)
-            loss = (1 - loss_simi + loss_C * self.args.w_c) * self.args.w_s + loss_local * self.args.w_l
+            #loss = (1 - loss_simi + loss_C * self.args.w_c) * self.args.w_s + loss_local * self.args.w_l
+            loss = (1 - loss_simi + loss_C * self.args.w_c)+ loss_local * self.args.w_l
 
             loss.backward()
             optimiser.step()
 
-            if epoch % 100 == 0 and epoch > 0:
-                model.eval()
-                hf = model.embed(features, adj_list)
-                acc, acc_std, macro_f1, macro_f1_std, micro_f1, micro_f1_std, k1, k2, st = evaluate(
-                    hf, self.idx_train, self.idx_val, self.idx_test, self.labels,
-                    seed=self.args.seed, epoch=self.args.test_epo, lr=self.args.test_lr)
+            # if epoch % 100 == 0 and epoch > 0:
+            #     model.eval()
+            #     hf = model.embed(features, adj_list)
+            #     acc, acc_std, macro_f1, macro_f1_std, micro_f1, micro_f1_std, k1, k2, st = evaluate(
+            #         hf, self.idx_train, self.idx_val, self.idx_test, self.labels,
+            #         seed=self.args.seed, epoch=self.args.test_epo, lr=self.args.test_lr)
 
         training_time = time.time() - start
-        print("training time:{}s".format(training_time))
-        print("Evaluating...")
+        # print("training time:{}s".format(training_time))
+        # print("Evaluating...")
         model.eval()
         hf = model.embed(features, adj_list)
         acc, acc_std, macro_f1,macro_f1_std, micro_f1,micro_f1_std,k1, k2, st = evaluate(
             hf, self.idx_train, self.idx_val, self.idx_test, self.labels,
             seed=self.args.seed, epoch=self.args.test_epo,lr=self.args.test_lr)
-        return acc, acc_std, macro_f1,macro_f1_std, micro_f1,micro_f1_std,k1, k2, st
+        return acc, acc_std, macro_f1,macro_f1_std, micro_f1,micro_f1_std,k1, k2, st,training_time
 

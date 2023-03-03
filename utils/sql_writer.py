@@ -59,12 +59,12 @@ def merge_args_and_dict(db_input_dir, dict_args):
             support_type = "text"
             if isinstance(value, list) or isinstance(value, tuple):
                 support_type = "text"
+            elif isinstance(value, bool): # bool被认为是数字 因此要先判断bool 再integer
+                support_type = "boolean"
             elif isinstance(value, int):
                 support_type = "integer"
             elif isinstance(value, float):
                 support_type = "double precision"
-            elif isinstance(value, bool):
-                support_type = "boolean"
             db_input_dir.update({key:[support_type,value]})
     return db_input_dir
 

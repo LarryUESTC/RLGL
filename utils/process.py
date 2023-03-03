@@ -374,6 +374,35 @@ def load_freebase(sc=None):
     test = [torch.LongTensor(i) for i in test]
     return adj_list, feat_m, label, train[0], val[0], test[0]
 
+
+def load_pubmed(train_ratio=1/3,val_ratio=1/3):
+    data = sio.loadmat('./utils/data/PubMed.mat')
+
+    label = data['labels'][0]
+    features = data['features']
+    adj_list = list(data['adjs_sparse'][0])
+    labels_mask = data['labels_mask'][0]
+
+    label_num = np.sum(labels_mask)
+    train_num = int(label_num*train_ratio)
+    val_num = int(label_num*val_ratio)
+
+    index = np.where(labels_mask == 1)[0]
+    np.random.shuffle(index)
+
+    idx_train = index[:train_num]
+    idx_val = index[train_num:train_num+val_num]
+    idx_test = index[train_num+val_num:]
+
+    # adj_fusion1 = (adj_list[0]+adj_list[1]+adj_list[2]+adj_list[3])
+    # adj_fusion = np.array(adj_fusion1.todense().copy())
+    # adj_fusion[adj_fusion < 4] = 0
+    # adj_fusion[adj_fusion == 4] = 1
+
+    return adj_list, features, label, idx_train, idx_val, idx_test#, adj_fusion
+
+
+
 class StandardScaler:
     """
     Standard the input
