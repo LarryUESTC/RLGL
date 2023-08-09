@@ -15,6 +15,7 @@ from tensorboardX import SummaryWriter
 import setproctitle
 setproctitle.setproctitle('PLLL')
 from datetime import datetime
+import wandb
 
 def get_A_r(adj, r):
     adj_label = adj
@@ -79,7 +80,7 @@ def calc_entropy(input_tensor):
 def get_clones(module, N):
     return nn.ModuleList([copy.deepcopy(module) for i in range(N)])
 
-def attention(q, k, v, d_k, mask=None, dropout=None):
+def attention(q, k, v, d_k, mask=None, dropout=None, out_att = False):
     scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(d_k)
     # scores = torch.where(scores > 1.1 * scores.mean(), scores, torch.zeros_like(scores))
 
@@ -88,14 +89,17 @@ def attention(q, k, v, d_k, mask=None, dropout=None):
         scores = scores.masked_fill(mask == 0, -1e9)
 
     scores = F.softmax(scores, dim=-1)
-    scores = torch.where(scores > scores.mean(dim = -1).unsqueeze(dim = -1 ), scores, torch.zeros_like(scores))
+    # scores = torch.where(scores > scores.mean(dim = -1).unsqueeze(dim = -1 ), scores, torch.zeros_like(scores))
     # scores = F.softmax(scores, dim=-1)
 
     if dropout is not None:
         scores = dropout(scores)
 
     output = torch.matmul(scores, v)
-    return output
+    if out_att:
+        return output, scores
+    else:
+        return output, None
 
 class MultiHeadAttention_new(nn.Module):
     def __init__(self, heads, d_model_in, d_model_out, dropout=0.1):
@@ -112,7 +116,7 @@ class MultiHeadAttention_new(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.out = nn.Linear(d_model_out, d_model_out)
 
-    def forward(self, q, k, v, mask=None):
+    def forward(self, q, k, v, mask=None, out_att = True):
         bs = q.size(0)
 
         # perform linear operation and split into N heads
@@ -126,13 +130,13 @@ class MultiHeadAttention_new(nn.Module):
         v = v.transpose(1, 0)
 
         # calculate attention using function we will define next
-        scores = attention(q, k, v, self.d_k, mask, self.dropout)
+        scores, out_A = attention(q, k, v, self.d_k, mask, self.dropout, out_att = out_att)
 
         # concatenate heads and put through final linear layer
         concat = scores.transpose(0, 1).contiguous().view(bs, self.d_model)
         output = self.out(concat)
 
-        return output
+        return output, out_A
 
 class FeedForward(nn.Module):
     def __init__(self, d_model, d_ff=2048, dropout=0.1):
@@ -147,6 +151,77 @@ class FeedForward(nn.Module):
         x = self.dropout(F.relu(self.linear_1(x)))
         x = self.linear_2(x)
         return x
+
+def full_attention_conv(qs, ks, vs, kernel, output_attn=False):
+    '''
+    qs: query tensor [N, H, M]
+    ks: key tensor [L, H, M]
+    vs: value tensor [L, H, D]
+
+    return output [N, H, D]
+    '''
+    if kernel == 'simple':
+        # normalize input
+        qs = qs / torch.norm(qs, p=2) # [N, H, M]
+        ks = ks / torch.norm(ks, p=2) # [L, H, M]
+        N = qs.shape[0]
+
+        # numerator
+        kvs = torch.einsum("lhm,lhd->hmd", ks, vs)
+        attention_num = torch.einsum("nhm,hmd->nhd", qs, kvs) # [N, H, D]
+        all_ones = torch.ones([vs.shape[0]]).to(vs.device)
+        vs_sum = torch.einsum("l,lhd->hd", all_ones, vs) # [H, D]
+        attention_num += vs_sum.unsqueeze(0).repeat(vs.shape[0], 1, 1) # [N, H, D]
+
+        # denominator
+        all_ones = torch.ones([ks.shape[0]]).to(ks.device)
+        ks_sum = torch.einsum("lhm,l->hm", ks, all_ones)
+        attention_normalizer = torch.einsum("nhm,hm->nh", qs, ks_sum)  # [N, H]
+
+        # attentive aggregated results
+        attention_normalizer = torch.unsqueeze(attention_normalizer, len(attention_normalizer.shape))  # [N, H, 1]
+        attention_normalizer += torch.ones_like(attention_normalizer) * N
+        attn_output = attention_num / attention_normalizer # [N, H, D]
+
+        # compute attention for visualization if needed
+        if output_attn:
+            attention = torch.einsum("nhm,lhm->nlh", qs, ks) / attention_normalizer.unsqueeze(2) # [N, L, H]
+
+    elif kernel == 'sigmoid':
+        # numerator
+        attention_num = torch.sigmoid(torch.einsum("nhm,lhm->nlh", qs, ks))  # [N, L, H]
+
+        # denominator
+        all_ones = torch.ones([ks.shape[0]]).to(ks.device)
+        attention_normalizer = torch.einsum("nlh,l->nh", attention_num, all_ones)
+        attention_normalizer = attention_normalizer.unsqueeze(1).repeat(1, ks.shape[0], 1)  # [N, L, H]
+
+        # compute attention and attentive aggregated results
+        attention = attention_num / attention_normalizer
+        attn_output = torch.einsum("nlh,lhd->nhd", attention, vs)  # [N, H, D]
+
+    if output_attn:
+        return attn_output, attention
+    else:
+        return attn_output
+
+def gcn_conv(x, edge_index, edge_weight):
+    N, H = x.shape[0], x.shape[1]
+    row, col = edge_index
+    d = degree(col, N).float()
+    d_norm_in = (1. / d[col]).sqrt()
+    d_norm_out = (1. / d[row]).sqrt()
+    gcn_conv_output = []
+    if edge_weight is None:
+        value = torch.ones_like(row) * d_norm_in * d_norm_out
+    else:
+        value = edge_weight * d_norm_in * d_norm_out
+    value = torch.nan_to_num(value, nan=0.0, posinf=0.0, neginf=0.0)
+    adj = SparseTensor(row=col, col=row, value=value, sparse_sizes=(N, N))
+    for i in range(x.shape[1]):
+        gcn_conv_output.append(matmul(adj, x[:, i]) )  # [N, D]
+    gcn_conv_output = torch.stack(gcn_conv_output, dim=1) # [N, H, D]
+    return gcn_conv_output
 
 class Norm(nn.Module):
     def __init__(self, d_model, eps=1e-6):
@@ -176,14 +251,71 @@ class EncoderLayer(nn.Module):
         self.dropout_2 = nn.Dropout(dropout)
 
     def forward(self, x, mask =None):
-        x2 = self.norm_1(x)
-        x = x + self.dropout_1(self.attn(x2, x2, x2, mask))
-        x2 = self.norm_2(x)
-        x = x + self.dropout_2(self.ff(x2))
-        return x
+        x1 = self.norm_1(x)
+        x1, out_A = self.attn(x1, x1, x1, mask)
+        x = x + self.dropout_1(x1)
+        # x2 = self.norm_2(x)
+        x = x + self.dropout_2(self.ff(x))
+        return x, out_A
+
+class DIFFormerConv(nn.Module):
+    '''
+    one DIFFormer layer
+    '''
+    def __init__(self, in_channels,
+               out_channels,
+               num_heads,
+               kernel='simple',
+               use_graph=False,
+               use_weight=True):
+        super(DIFFormerConv, self).__init__()
+        self.Wk = nn.Linear(in_channels, out_channels * num_heads)
+        self.Wq = nn.Linear(in_channels, out_channels * num_heads)
+        if use_weight:
+            self.Wv = nn.Linear(in_channels, out_channels * num_heads)
+
+        self.out_channels = out_channels
+        self.num_heads = num_heads
+        self.kernel = kernel
+        self.use_graph = use_graph
+        self.use_weight = use_weight
+
+    def reset_parameters(self):
+        self.Wk.reset_parameters()
+        self.Wq.reset_parameters()
+        if self.use_weight:
+            self.Wv.reset_parameters()
+
+    def forward(self, query_input, source_input, edge_index=None, edge_weight=None, output_attn=True):
+        # feature transformation
+        query = self.Wq(query_input).reshape(-1, self.num_heads, self.out_channels)
+        key = self.Wk(source_input).reshape(-1, self.num_heads, self.out_channels)
+        if self.use_weight:
+            value = self.Wv(source_input).reshape(-1, self.num_heads, self.out_channels)
+        else:
+            value = source_input.reshape(-1, 1, self.out_channels)
+
+        # compute full attentive aggregation
+        if output_attn:
+            attention_output, attn = full_attention_conv(query, key, value, self.kernel, output_attn)  # [N, H, D]
+        else:
+            attention_output = full_attention_conv(query,key,value,self.kernel) # [N, H, D]
+
+        # use input graph for gcn conv
+        if self.use_graph:
+            final_output = attention_output + gcn_conv(value, edge_index, edge_weight)
+        else:
+            final_output = attention_output
+        final_output = final_output.mean(dim=1)
+
+        if output_attn:
+            return final_output, attn
+        else:
+            return final_output
+
 
 class GAT_selfCon_Trans(nn.Module):
-    def __init__(self, n_in ,cfg = None, batch_norm=True, act='leakyrelu', dropout = 0.2, final_mlp = 0, nb_classes = 7,nheads = 4, Trans_layer_num = 2):
+    def __init__(self, n_in ,cfg = None, batch_norm=True, act='leakyrelu', dropout = 0.3, final_mlp = 0, nb_classes = 7,nheads = 4, Trans_layer_num = 2):
         super(GAT_selfCon_Trans, self).__init__()
         self.dropout = dropout
         self.bat = batch_norm
@@ -221,6 +353,7 @@ class GAT_selfCon_Trans(nn.Module):
 
         self.Linear_selfC = get_clones(nn.Linear(int(self.hid_dim / self.nheads), self.nclass), self.nheads)
         self.layers = get_clones(EncoderLayer(self.hid_dim, self.nheads, self.dropout), self.Trans_layer_num)
+        # self.layers = get_clones(DIFFormerConv(self.hid_dim, self.hid_dim, self.nheads), self.Trans_layer_num)
         self.norm_trans = Norm(int(self.hid_dim / self.nheads))
         # self.cls = nn.Linear(self.hid_dim, self.nclass)
         # cfg_head = [self.hid_dim, 64, 32, self.nclass]
@@ -259,9 +392,10 @@ class GAT_selfCon_Trans(nn.Module):
         # x = x.detach()
         x = F.dropout(x, self.dropout, training=self.training)
         # x_dis = get_feature_dis(self.norm_layers[-2](x))
-
+        out_A_list = []
         for i in range(self.Trans_layer_num):
-            x = self.layers[i](x)
+            x, out_A = self.layers[i](x)
+            out_A_list.append(out_A.detach())
 
         # x_dis = get_feature_dis(x)
 
@@ -274,7 +408,7 @@ class GAT_selfCon_Trans(nn.Module):
             # CONN_INDEX += F.softmax(Linear_out_one - Linear_out_one.sort(descending= True)[0][:,3].unsqueeze(1), dim=1)
             CONN_INDEX += F.softmax(Linear_out_one, dim=1)
         # x_dis = get_feature_dis(CONN_INDEX)
-        return F.log_softmax(CONN_INDEX, dim=1), x_dis
+        return F.log_softmax(CONN_INDEX, dim=1), x_dis, out_A_list
 
 
 class SELFCONS(embedder_single):
@@ -290,6 +424,7 @@ class SELFCONS(embedder_single):
                                        Trans_layer_num =self.args.Trans_layer_num).to(self.args.device)
 
         current_time = datetime.now().strftime('%b%d_%H-%M:%S')
+        self.TABLE_NAME = self.args.method + '_' + self.args.dataset
         logdir = os.path.join('runs5', current_time + '_selfcons_'+ str(self.args.seed))
         self.buffer = RecordeBuffer()
         self.writer_tb = SummaryWriter(log_dir = logdir)
@@ -299,29 +434,37 @@ class SELFCONS(embedder_single):
         self.top_entropy_idx = None
         self.N = None
         self.G = None
+        self.top_k = 50
 
-    def generate_G(self):
-        pre_embedding_entropy = self.buffer.entropy[-1]
-        pre_embedding = self.buffer.psudo_labels[-1]
-        top_entropy_idx = torch.topk(pre_embedding_entropy, k=self.entropy_top, dim=-1, largest=False)[1]
-        print(accuracy(pre_embedding[top_entropy_idx], self.labels[top_entropy_idx]))
-        idx_train = self.idx_train.cpu().numpy().tolist()
-        self.top_entropy_idx = []
-        for i in top_entropy_idx:
-            if i not in idx_train:
-                self.top_entropy_idx.append(i.item())
-        self.entropy = pre_embedding_entropy
-        self.psudo_labels = pre_embedding.max(1)[1].type_as(self.labels)
-        self.entropy_graph = -torch.log(pre_embedding_entropy.view(self.N, 1).repeat(1, self.N) * pre_embedding_entropy.view(1, self.N).repeat(self.N, 1) + 0.0001)
-        self.lable_matrix = (self.psudo_labels.view(self.N, 1).repeat(1, self.N) == self.psudo_labels.view(1,self.N).repeat(self.N, 1)) + 0.0
-        self.S = get_feature_dis(pre_embedding)
-        # self.lable_matrix -=  ((self.psudo_labels.view(self.N, 1).repeat(1, self.N) != self.psudo_labels.view(1,self.N).repeat(self.N, 1)) + 0.0)*0.5
-        G = torch.eye(self.N).to(self.args.device)
-        A= torch.exp(self.S) * self.lable_matrix
-        G[self.top_entropy_idx] = A[self.top_entropy_idx]
-        # G = self.lable_matrix * self.entropy_graph * 0.1
-        self.G = G
-        return G
+        self.run = wandb.init(
+            # set the wandb project where this run will be logged
+            project=self.TABLE_NAME,
+            name = "exp-7-7-seed-" + str(self.args.seed),
+            config=vars(self.args)
+        )
+
+    # def generate_G(self):
+    #     pre_embedding_entropy = self.buffer.entropy[-1]
+    #     pre_embedding = self.buffer.psudo_labels[-1]
+    #     top_entropy_idx = torch.topk(pre_embedding_entropy, k=self.entropy_top, dim=-1, largest=False)[1]
+    #     print(accuracy(pre_embedding[top_entropy_idx], self.labels[top_entropy_idx]))
+    #     idx_train = self.idx_train.cpu().numpy().tolist()
+    #     self.top_entropy_idx = []
+    #     for i in top_entropy_idx:
+    #         if i not in idx_train:
+    #             self.top_entropy_idx.append(i.item())
+    #     self.entropy = pre_embedding_entropy
+    #     self.psudo_labels = pre_embedding.max(1)[1].type_as(self.labels)
+    #     self.entropy_graph = -torch.log(pre_embedding_entropy.view(self.N, 1).repeat(1, self.N) * pre_embedding_entropy.view(1, self.N).repeat(self.N, 1) + 0.0001)
+    #     self.lable_matrix = (self.psudo_labels.view(self.N, 1).repeat(1, self.N) == self.psudo_labels.view(1,self.N).repeat(self.N, 1)) + 0.0
+    #     self.S = get_feature_dis(pre_embedding)
+    #     # self.lable_matrix -=  ((self.psudo_labels.view(self.N, 1).repeat(1, self.N) != self.psudo_labels.view(1,self.N).repeat(self.N, 1)) + 0.0)*0.5
+    #     G = torch.eye(self.N).to(self.args.device)
+    #     A= torch.exp(self.S) * self.lable_matrix
+    #     G[self.top_entropy_idx] = A[self.top_entropy_idx]
+    #     # G = self.lable_matrix * self.entropy_graph * 0.1
+    #     self.G = G
+    #     return G
 
     def training(self):
 
@@ -340,7 +483,7 @@ class SELFCONS(embedder_single):
         test_lbls = self.labels[self.idx_test]
         train_onehot = F.one_hot(train_lbls)
         p_sudo = []
-
+        lable_adj = (self.labels.view(1, self.N) == self.labels.view(self.N, 1))+0.
         cnt_wait = 0
         best = 1e-9
         output_acc = 1e-9
@@ -359,6 +502,17 @@ class SELFCONS(embedder_single):
         # adj_label = adj_label_list[0]
         adj_label = graph_org_torch @ graph_org_torch
         # adj_label = F.normalize((adj_label_list[-2] > 0) + 0.0, p =1 )
+        change_head_E = []
+        change_Layer_E = []
+        max_min_attention_E = []
+        max_value_E = []
+        max_index_E = []
+        min_value_E = []
+        min_index_E = []
+        A_acc_E = []
+        A_attention_E = []
+        A_orggraph_E = []
+
         for epoch in range(self.args.nb_epochs):
             self.model.train()
             optimiser.zero_grad()
@@ -368,7 +522,7 @@ class SELFCONS(embedder_single):
             #     G_A = G #F.normalize(G, p=1) #+ graph_org_torch
             #     adj_label = G_A
             input_feature = features
-            embeds, x_dis = self.model(input_feature)
+            embeds, x_dis, out_A_list = self.model(input_feature)
             self.buffer.psudo_labels.append(embeds.detach())
             self.buffer.entropy.append(calc_entropy(embeds).detach())
             # adj_g = get_feature_dis(embeds).detach()
@@ -399,12 +553,141 @@ class SELFCONS(embedder_single):
             ################STA|Eval|###############
             if epoch % 5 == 0 and epoch != 0 :
                 self.model.eval()
-                embeds, _ = self.model(features)
+                embeds, _, out_A_list= self.model(features)
                 val_acc = accuracy(embeds[self.idx_val], val_lbls)
                 test_acc = accuracy(embeds[self.idx_test], test_lbls)
                 self.writer_tb.add_scalar('Test_acc', test_acc, epoch)
                 self.writer_tb.add_scalar('val_acc', val_acc, epoch)
-                # print(test_acc.item())
+                print(test_acc.item())
+
+                change_head_L = []
+                change_Layer_L = []
+                max_min_attention_L_L = []
+                max_value_L_L = []
+                max_index_L_L = []
+                min_value_L_L = []
+                min_index_L_L = []
+                A_acc_L_L = []
+                A_attention_L_L = []
+                A_orggraph_L_L = []
+                for i in range(len(out_A_list)):
+                    max_min_attention_L = []
+                    max_value_L = []
+                    max_index_L = []
+                    min_value_L = []
+                    min_index_L = []
+                    A_acc_L = []
+                    A_attention_L = []
+                    A_orggraph_L = []
+                    for head in range(len(out_A_list[i])):
+                        A = out_A_list[i][head]
+                        self.run.log({"idx_train_attGet{}{}".format(i, head): A[:, self.idx_train].sum(0).mean()})
+                        self.run.log({"idx_val_attGet{}{}".format(i, head): A[:, self.idx_val].sum(0).mean()})
+                        self.run.log({"idx_test_attGet{}{}".format(i, head): A[:, self.idx_test].sum(0).mean()})
+                        self.run.log({"idx_train_acc_L_L{}{}".format(i, head): (A[self.idx_train] * lable_adj[self.idx_train]).sum(dim = 1).mean()})
+                        self.run.log({"idx_val_acc_L_L{}{}".format(i, head): (A[self.idx_val] * lable_adj[self.idx_val]).sum(dim = 1).mean()})
+                        self.run.log({"idx_test_acc_L_L{}{}".format(i, head): (A[self.idx_test] * lable_adj[self.idx_test]).sum(dim = 1).mean()})
+                        A_acc_L.append(((A * lable_adj).sum(dim = 1)).cpu().numpy())
+                        A_orggraph_L.append(((A * adj_label).sum(dim = 1) / adj_label.sum(dim = 1)).cpu().numpy())
+                        node_attention = A.sum(dim=0)
+                        A_attention_L.append(node_attention.cpu().numpy())
+                        max_edge_attention = A.max().cpu().numpy()
+                        min_edge_attention = A.min().cpu().numpy()
+                        max_node_attention = node_attention.max().cpu().numpy()
+                        min_node_attention = node_attention.min().cpu().numpy()
+
+                        max_top = torch.topk(A, k=self.top_k, dim=1, sorted=True, largest=True)
+                        min_top = torch.topk(A, k=self.top_k, dim=1, sorted=True, largest=False)
+                        self.run.log({"max_ACC_L_L{}{}_T50".format(i, head): ((max_top[0] * lable_adj.gather(1, max_top[1])).sum(1) / max_top[0].sum(1)).mean()})
+                        self.run.log({"min_ACC_L_L{}{}_T50".format(i, head): ((min_top[0] * lable_adj.gather(1, min_top[1])).sum(1) / min_top[0].sum(1)).mean()})
+                        self.run.log({"max_ACC_L_L{}{}_T10".format(i, head): ((max_top[0][:, :10] * lable_adj.gather(1, max_top[1][:, :10])).sum(1) / max_top[0][:, :10].sum(1)).mean()})
+                        self.run.log({"min_ACC_L_L{}{}_T10".format(i, head): ((min_top[0][:, :10] * lable_adj.gather(1, min_top[1][:, :10])).sum(1) / min_top[0][:, :10].sum(1)).mean()})
+                        self.run.log({"max_ACC_L_L{}{}_T5".format(i, head): ((max_top[0][:, :5] * lable_adj.gather(1, max_top[1][:, :5])).sum(1) / max_top[0][:, :5].sum(1)).mean()})
+                        self.run.log({"min_ACC_L_L{}{}_T5".format(i, head): ((min_top[0][:, :5] * lable_adj.gather(1, min_top[1][:, :5])).sum(1) / min_top[0][:, :5].sum(1)).mean()})
+                        max_value_L.append(max_top[0].cpu().numpy())
+                        max_index_L.append(max_top[1].cpu().numpy())
+                        min_value_L.append(min_top[0].cpu().numpy())
+                        min_index_L.append(min_top[1].cpu().numpy())
+                        max_min_attention_L.append([max_edge_attention, min_edge_attention, max_node_attention, min_node_attention])
+
+                    A_acc_L_L.append(A_acc_L)
+                    A_attention_L_L.append(A_attention_L)
+                    A_orggraph_L_L.append(A_orggraph_L)
+                    max_value_L_L.append(max_value_L)
+                    max_index_L_L.append(max_index_L)
+                    min_value_L_L.append(min_value_L)
+                    min_index_L_L.append(min_index_L)
+                    max_min_attention_L_L.append(max_min_attention_L)
+                    change_head = (out_A_list[i][1] - out_A_list[i][0]).abs().mean().cpu().numpy()
+                    change_head_L.append(change_head)
+                    if i >= 1:
+                        change_Layer = (out_A_list[i][0] - out_A_list[i-1][0]).abs().mean().cpu().numpy()
+                        change_Layer_L.append(change_Layer)
+
+                change_head_E.append(change_head_L)
+                change_Layer_E.append(change_Layer_L)
+                max_min_attention_E.append(max_min_attention_L_L)
+                max_value_E.append(max_value_L_L)
+                max_index_E.append(max_index_L_L)
+                min_value_E.append(min_value_L_L)
+                min_index_E.append(min_index_L_L)
+                A_acc_E.append(A_acc_L_L)
+                A_attention_E.append(A_attention_L_L)
+                A_orggraph_E.append(A_orggraph_L_L)
+
+                self.run.log({"Epoch": epoch,
+                              "test_acc": test_acc,
+                              "val_acc": val_acc,
+                             # "change_head_L": change_head_L,
+                             #  "change_Layer_L": change_Layer_L,
+                             #  "A_acc_L_L00": A_acc_L_L[0][0].mean(),
+                             #  "A_acc_L_L01": A_acc_L_L[0][1].mean(),
+                             #  "A_acc_L_L10": A_acc_L_L[1][0].mean(),
+                             #  "A_acc_L_L11": A_acc_L_L[1][1].mean(),
+                             #  "A_attention_L_L00": A_attention_L_L[0][0].max()-A_attention_L_L[0][0].min(),
+                             #  "A_attention_L_L01": A_attention_L_L[0][1].max()-A_attention_L_L[0][1].min(),
+                             #  "A_attention_L_L10": A_attention_L_L[1][0].max()-A_attention_L_L[1][0].min(),
+                             #  "A_attention_L_L11": A_attention_L_L[1][1].max()-A_attention_L_L[1][1].min(),
+                             #  "A_orggraph_L_L00": A_orggraph_L_L[0][0].mean(),
+                             #  "A_orggraph_L_L01": A_orggraph_L_L[0][1].mean(),
+                             #  "A_orggraph_L_L10": A_orggraph_L_L[1][0].mean(),
+                             #  "A_orggraph_L_L11": A_orggraph_L_L[1][1].mean(),
+                             #  "max_value_L_L00_T50": max_value_L_L[0][0].sum(1).mean(),
+                             #  "min_value_L_L00_T50": min_value_L_L[0][0].sum(1).mean(),
+                             #  "max_value_L_L10_T50": max_value_L_L[1][0].sum(1).mean(),
+                             #  "min_value_L_L10_T50": min_value_L_L[1][0].sum(1).mean(),
+                             #  "max_value_L_L00_T10": max_value_L_L[0][0][:, :10].sum(1).mean(),
+                             #  "min_value_L_L00_T10": min_value_L_L[0][0][:, :10].sum(1).mean(),
+                             #  "max_value_L_L10_T10": max_value_L_L[1][0][:, :10].sum(1).mean(),
+                             #  "min_value_L_L10_T10": min_value_L_L[1][0][:, :10].sum(1).mean(),
+                             #  "max_value_L_L00_T5": max_value_L_L[0][0][:, :5].sum(1).mean(),
+                             #  "min_value_L_L00_T5": min_value_L_L[0][0][:, :5].sum(1).mean(),
+                             #  "max_value_L_L10_T5": max_value_L_L[1][0][:, :5].sum(1).mean(),
+                             #  "min_value_L_L10_T5": min_value_L_L[1][0][:, :5].sum(1).mean(),
+                             #  "max_min_attention_L_L": max_min_attention_L_L,
+                              })
+
+                for i in range(len(change_head_L)):
+                    self.run.log({"change_head_L_{}".format(i): change_head_L[i]})
+                for i in range(len(change_Layer_L)):
+                    self.run.log({"change_Layer_L_{}".format(i): change_Layer_L[i]})
+                for l in range(len(A_acc_L_L)):
+                    for h in range(len(A_acc_L_L[l])):
+                        self.run.log({"A_acc_L_L{}{}".format(l,h): A_acc_L_L[l][h].mean()})
+                for l in range(len(A_attention_L_L)):
+                    for h in range(len(A_attention_L_L[l])):
+                        self.run.log({"A_attention_L_L{}{}".format(l,h): A_attention_L_L[l][h].max() - A_attention_L_L[l][h].min()})
+                for l in range(len(A_orggraph_L_L)):
+                    for h in range(len(A_orggraph_L_L[l])):
+                        self.run.log({"A_orggraph_L_L{}{}".format(l,h): A_orggraph_L_L[l][h].mean()})
+                for l in range(len(max_value_L_L)):
+                    for h in range(len(max_value_L_L[l])):
+                        self.run.log({"max_value_L_L{}{}_T50".format(l, h): max_value_L_L[l][h].sum(1).mean()})
+                        self.run.log({"min_value_L_L{}{}_T50".format(l, h): min_value_L_L[l][h].sum(1).mean()})
+                        self.run.log({"max_value_L_L{}{}_T10".format(l, h): max_value_L_L[l][h][:, :10].sum(1).mean()})
+                        self.run.log({"min_value_L_L{}{}_T10".format(l, h): min_value_L_L[l][h][:, :10].sum(1).mean()})
+                        self.run.log({"max_value_L_L{}{}_T5".format(l, h): max_value_L_L[l][h][:, :5].sum(1).mean()})
+                        self.run.log({"min_value_L_L{}{}_T5".format(l, h): min_value_L_L[l][h][:, :5].sum(1).mean()})
                 # for test_ind in number_neibor_list:
                 #     test_acc_ind = accuracy(embeds[test_ind], self.labels[test_ind])
                 #     print("{:.2f} | ".format(test_acc_ind*100), end="")
@@ -424,4 +707,34 @@ class SELFCONS(embedder_single):
         training_time = time.time() - start
         print("\t[Classification] ACC: {:.4f} | stop_epoch: {:}| training_time: {:.4f} ".format(
             output_acc, stop_epoch, training_time))
+
+        # str_now = datetime.now().strftime('%m-%d-%H-%M-%S')
+        # filename = '{}.npz'.format(str_now)
+        # npz_dir = "exp-7-5-seed-" + str(self.args.seed)
+        # file_path = os.path.join('Temp',self.TABLE_NAME, npz_dir)
+        # try:
+        #     os.makedirs(file_path)
+        # except:
+        #     pass
+        # np.savez(os.path.join(file_path,filename),
+        #          change_head_E = np.array(change_head_E),
+        #          change_Layer_E = np.array(change_Layer_E),
+        #          max_min_attention_E=np.array(max_min_attention_E),
+        #          max_value_E=np.array(max_value_E),
+        #          max_index_E=np.array(max_index_E),
+        #          min_value_E=np.array(min_value_E),
+        #          min_index_E=np.array(min_index_E),
+        #          A_acc_E=np.array(A_acc_E),
+        #          A_attention_E=np.array(A_attention_E),
+        #          A_orggraph_E=np.array(A_orggraph_E),
+        #          )
+        #
+        # data_filename = os.path.join('Temp',self.TABLE_NAME, '{}.npz'.format(self.args.dataset))
+        # if os.path.exists(data_filename):
+        #     pass
+        # else:
+        #     np.savez(data_filename, adj=self.adj_list[-1].cpu().numpy(), label = self.labels.cpu().numpy(), idx_train = self.idx_train.cpu().numpy(), idx_val = self.idx_val.cpu().numpy(), idx_test = self.idx_test.cpu().numpy())
+        #
+        wandb.finish()
         return output_acc, training_time, stop_epoch
+

@@ -19,6 +19,7 @@ from models.VisionGraph.PyramidViG import PyramidViG as IMGCLS_VIG
 from models.Brain.Self_Brain import SELFBRAIN
 from models.Brain.Self_Brain_MLP import SELFBRAINMLP
 from models.Self.CCA_MGRL import CCA_MGRL
+from models.Self.GraphMLP import Graph_MLP
 method_dict = {
 'E2_SGRL':E2_SGRL,
 'SEMI_GCN':Semi_GCN,
@@ -41,6 +42,7 @@ method_dict = {
 'GDP2':GDPNet2,
 'SELFBRAIN':SELFBRAIN,
 'SELFBRAINMLP':SELFBRAINMLP,
+'GRAPHMLP':Graph_MLP,
 }
 
 

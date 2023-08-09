@@ -30,9 +30,12 @@ class Semi_Gcn(Semi):
         super(Semi_Gcn, self).__init__(method, dataset)
         ################STA|add new params here|###############
         # self.parser.add_argument('--random_aug_edge', type=float, default=0.2, help='RA graph')
+        self.parser.add_argument('--cfg', type=list, default=[128, 128])
+        self.parser.add_argument('--wd', type=int, default=5e-5, help='weight delay')
+        self.parser.add_argument('--gnn', type=str, default='GCN')
+        self.parser.add_argument('--nb_epochs', type=int, default=500)
         ################END|add new params here|###############
         self.args, _ = self.parser.parse_known_args()
-
         ################STA|replace params here|###############
         self.replace()
         ################END|replace params here|###############
@@ -102,13 +105,13 @@ class Semi_SelfCons(Semi):
     def __init__(self, method, dataset):
         super(Semi_SelfCons, self).__init__(method, dataset)
         ################STA|add new params here|###############
-        self.parser.add_argument('--nheads', type=int, default=8, help='transformer multi-heads')
-        self.parser.add_argument('--Trans_layer_num', type=int, default=2, help='transformer layer number')
+        self.parser.add_argument('--nheads', type=int, default=4, help='transformer multi-heads')
+        self.parser.add_argument('--Trans_layer_num', type=int, default=3, help='transformer layer number')
         self.parser.add_argument('--beta', type=int, default=1, help='Ncontrastive loss params')
         self.parser.add_argument('--wd', type=int, default=5e-5, help='weight delay')
         self.parser.add_argument('--tau', type=int, default=1.0, help='tau for Ncontrastive')
         self.parser.add_argument('--gnn', type=str, default='GCN', help='gnn model')
-        self.parser.add_argument('--nb_epochs', type=int, default=3000)
+        self.parser.add_argument('--nb_epochs', type=int, default=1000)
         self.parser.add_argument('--cfg', type=list, default=[128, 128])
         ################END|add new params here|###############
         self.args, _ = self.parser.parse_known_args()
@@ -120,7 +123,7 @@ class Semi_SelfCons(Semi):
     def replace(self):
         super(Semi_SelfCons, self).replace()
         self.args.__setattr__('method', 'SEMI_SELFCONS')
-        self.args.__setattr__('lr', 0.0005)
+        self.args.__setattr__('lr', 0.0001)
         self.args.__setattr__('patience', 300)
 
 class Semi_SelfCons_Cora(Semi_SelfCons):
@@ -136,7 +139,7 @@ class Semi_SelfCons_Cora(Semi_SelfCons):
 
 class Semi_Gcn_Cora(Semi_Gcn):
     def __init__(self, method, dataset):
-        super(Semi_Gcn, self).__init__(method, dataset)
+        super(Semi_Gcn_Cora, self).__init__(method, dataset)
         self.args, _ = self.parser.parse_known_args()
 
         self.replace()
@@ -179,6 +182,48 @@ class Unsup(object):
 
     def get_parse(self):
         return self.args
+
+class Unsup_GraphMLP(Unsup):
+    def __init__(self, method, dataset):
+        super(Unsup_GraphMLP, self).__init__(method, dataset)
+        self.parser.add_argument('--sc', type=int, default=0, help='')
+        self.parser.add_argument('--neg_num', type=int, default=2, help='the number of negtives')
+        # self.parser.add_argument('--margin1', type=float, default=0.8, help='')
+        self.parser.add_argument('--dropout', type=float, default=0.2, help='dropout')
+        self.parser.add_argument('--w_s', type=float, default=1, help='weight of loss loss_simi')
+        self.parser.add_argument('--w_c', type=float, default=1, help='weight of loss loss_C')
+        self.parser.add_argument('--w_l', type=float, default=1, help='weight of loss loss_local')
+        self.parser.add_argument('--tau', type=float, default=1.0, help='weight of tau')
+        self.parser.add_argument('--A_r', type=int, default=2, help='weight of A_r')
+
+        self.args, _ = self.parser.parse_known_args()
+        self.replace()
+
+    def replace(self):
+        super(Unsup_GraphMLP, self).replace()
+        self.args.__setattr__('method', 'GraphMLP')
+        self.args.__setattr__('cfg', [256, 256, 128, 128])
+
+class Unsup_CCAMGRL_Cora(Unsup_GraphMLP):
+    def __init__(self, method, dataset):
+        super(Unsup_GraphMLP, self).__init__(method, dataset)
+        self.args, _ = self.parser.parse_known_args()
+        self.replace()
+
+    def replace(self):
+        super(Unsup_CCAMGRL_Cora, self).replace()
+        self.args.__setattr__('dataset', 'Cora')
+        self.args.__setattr__('cfg', [256, 256, 128, 128])
+        self.args.__setattr__('lr', 0.01)
+        self.args.__setattr__('nb_epochs', 5000)
+        self.args.__setattr__('test_epo', 100)
+        self.args.__setattr__('test_lr', 0.01)
+        self.args.__setattr__('w_s', 5)
+        self.args.__setattr__('w_c', 0.01)
+        self.args.__setattr__('w_l', 5)
+        self.args.__setattr__('tau', 1.0)
+
+
 
 class Unsup_CCAMGRL(Unsup):
     def __init__(self, method, dataset):
@@ -851,6 +896,7 @@ params_key = {
     'Semi_SelfCons': Semi_SelfCons,
     'Semi_Gcn_Cora': Semi_Gcn_Cora,
     'Unsup': Unsup,
+    'Unsup_GraphMLP': Unsup_GraphMLP,
     'Unsup_CCAMGRL': Unsup_CCAMGRL,
     'Unsup_CCAMGRL_Acm': Unsup_CCAMGRL_Acm,
     'Unsup_CCAMGRL_Imdb': Unsup_CCAMGRL_Imdb,

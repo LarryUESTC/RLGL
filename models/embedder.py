@@ -81,7 +81,6 @@ class embedder_single:
         self.idx_train = idx_train.to(args.device)
         self.idx_val = idx_val.to(args.device)
         self.idx_test = idx_test.to(args.device)
-
         self.args = args
 
 

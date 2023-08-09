@@ -244,7 +244,7 @@ class Policy(nn.Module):
 
         s = torch.cat([embeddings, embeddings_neibor, embeddings_consider], dim=-1)
 
-        T_horizon = 5
+        T_horizon = 100
         ac_acc_list = []
         if epoch % 5 == 0:
             print(f"\n Epoch {epoch}", end="")
@@ -257,7 +257,7 @@ class Policy(nn.Module):
 
             self.A_G[[*range(0, self.node_num)], self.consider_idx] = at+0.0
             A_G_N = F.normalize(self.A_G, p=1)
-            rt = self.get_reward_0(self.consider_idx, at, adj_id= 4)
+            rt = self.get_reward_0(self.consider_idx, at, adj_id= 2)
             at_acc = 100 *  ((self.env.labels == self.env.labels[self.consider_idx]) * at).sum() / at.sum()
             ac_acc_list.append(at_acc)
             if epoch%5==0:
@@ -383,7 +383,7 @@ class GDP_Module(nn.Module):
         return a, s, s_prime, r, prob_a
 
     def update(self, epoch):
-        if epoch% 2 == 0:
+        if epoch% 1 == 0:
             self.policy._reset()
         self.policy(epoch)  # get reward state and caction (in polic.buffer)
         a, s, s_prime, r, prob_a = self.make_batch()
